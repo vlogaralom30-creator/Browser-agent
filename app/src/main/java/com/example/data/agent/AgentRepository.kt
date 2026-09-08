@@ -26,19 +26,37 @@ class AgentRepository(context: Context) {
     val configFlow: Flow<AgentConfigEntity?> = configDao.getConfigFlow()
 
     suspend fun initializeDefaultsIfEmpty() {
-        // Initialize default configuration if empty
+        // Initialize default configuration if empty or update if using obsolete model
         val config = configDao.getConfig()
         if (config == null) {
             configDao.insertOrUpdateConfig(
                 AgentConfigEntity(
                     id = 1,
-                    activeModel = "gemini-2.5-flash",
+                    activeModel = "gemini-2.0-flash",
                     permissionMode = "FULL_ACCESS",
                     isAutoFailoverEnabled = true,
                     isVisionEnabled = true,
                     maxStepsPerTask = 30
                 )
             )
+        } else if (config.activeModel.contains("gemini-2.5-flash")) {
+            configDao.insertOrUpdateConfig(config.copy(activeModel = "gemini-2.0-flash"))
+        }
+
+        // Reset status for any keys that were rate limited or marked error due to obsolete model
+        val allKeys = apiKeyDao.getAllApiKeysList()
+        for (key in allKeys) {
+            if (key.lastError?.contains("gemini-2.5-flash", ignoreCase = true) == true ||
+                key.lastError?.contains("no longer available", ignoreCase = true) == true
+            ) {
+                apiKeyDao.updateApiKey(
+                    key.copy(
+                        status = "ACTIVE",
+                        failCount = 0,
+                        lastError = null
+                    )
+                )
+            }
         }
     }
 

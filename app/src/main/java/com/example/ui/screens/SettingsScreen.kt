@@ -165,7 +165,7 @@ fun SettingsScreen(
             SettingsClickableItem(
                 icon = Icons.Default.AutoAwesome,
                 title = "Active AI Model",
-                subtitle = (config?.activeModel ?: "gemini-2.5-flash").removePrefix("models/"),
+                subtitle = (config?.activeModel ?: "gemini-2.0-flash").removePrefix("models/"),
                 onClick = { showModelSelectorDialog = true }
             )
 
@@ -416,7 +416,7 @@ fun SettingsScreen(
 
     if (showModelSelectorDialog) {
         ModelSelectionDialog(
-            currentModel = config?.activeModel ?: "gemini-2.5-flash",
+            currentModel = config?.activeModel ?: "gemini-2.0-flash",
             agentRepository = agentRepo,
             onModelSelected = { selectedModel ->
                 coroutineScope.launch {

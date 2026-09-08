@@ -102,18 +102,37 @@ class GeminiApiClient(
                     })
                 }
 
-                // Resolve model name
-                val sanitizedModel = model.removePrefix("models/")
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/$sanitizedModel:generateContent?key=${apiKeyEntity.apiKey}"
+                // Resolve model name with fallback for obsolete models
+                var targetModel = model.removePrefix("models/")
+                if (targetModel.contains("gemini-2.5-flash")) {
+                    targetModel = "gemini-2.0-flash"
+                }
+                var url = "https://generativelanguage.googleapis.com/v1beta/models/$targetModel:generateContent?key=${apiKeyEntity.apiKey}"
 
-                val request = Request.Builder()
+                var request = Request.Builder()
                     .url(url)
                     .post(requestPayload.toString().toRequestBody(jsonMediaType))
                     .build()
 
-                val response: Response = client.newCall(request).execute()
-                val responseCode = response.code
-                val responseBody = response.body?.string() ?: ""
+                var response: Response = client.newCall(request).execute()
+                var responseCode = response.code
+                var responseBody = response.body?.string() ?: ""
+
+                // Fallback attempt if chosen model is no longer available
+                if (!response.isSuccessful && (responseBody.contains("no longer available", ignoreCase = true) || responseBody.contains("not found", ignoreCase = true))) {
+                    val fallbackModel = "gemini-1.5-flash"
+                    val fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/$fallbackModel:generateContent?key=${apiKeyEntity.apiKey}"
+                    val fallbackReq = Request.Builder()
+                        .url(fallbackUrl)
+                        .post(requestPayload.toString().toRequestBody(jsonMediaType))
+                        .build()
+                    val fallbackResp = client.newCall(fallbackReq).execute()
+                    if (fallbackResp.isSuccessful) {
+                        response = fallbackResp
+                        responseCode = fallbackResp.code
+                        responseBody = fallbackResp.body?.string() ?: ""
+                    }
+                }
 
                 if (response.isSuccessful) {
                     val json = JSONObject(responseBody)
@@ -181,10 +200,13 @@ class GeminiApiClient(
         )
     }
 
-    suspend fun testApiKey(apiKey: String, model: String = "gemini-2.5-flash"): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+    suspend fun testApiKey(apiKey: String, model: String = "gemini-2.0-flash"): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         try {
-            val sanitizedModel = model.removePrefix("models/")
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$sanitizedModel:generateContent?key=$apiKey"
+            var sanitizedModel = model.removePrefix("models/")
+            if (sanitizedModel.contains("gemini-2.5-flash")) {
+                sanitizedModel = "gemini-2.0-flash"
+            }
+            var url = "https://generativelanguage.googleapis.com/v1beta/models/$sanitizedModel:generateContent?key=$apiKey"
             val payload = JSONObject().apply {
                 put("contents", JSONArray().apply {
                     put(JSONObject().apply {
@@ -195,13 +217,28 @@ class GeminiApiClient(
                 })
             }
 
-            val request = Request.Builder()
+            var request = Request.Builder()
                 .url(url)
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            var response = client.newCall(request).execute()
+            var body = response.body?.string() ?: ""
+
+            // Fallback retry if model is obsolete
+            if (!response.isSuccessful && (body.contains("no longer available", ignoreCase = true) || body.contains("not found", ignoreCase = true))) {
+                val fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
+                val fallbackReq = Request.Builder()
+                    .url(fallbackUrl)
+                    .post(payload.toString().toRequestBody(jsonMediaType))
+                    .build()
+                val fallbackResp = client.newCall(fallbackReq).execute()
+                if (fallbackResp.isSuccessful) {
+                    response = fallbackResp
+                    body = fallbackResp.body?.string() ?: ""
+                }
+            }
+
             if (response.isSuccessful) {
                 Pair(true, "Key is active and verified.")
             } else {
@@ -220,11 +257,10 @@ class GeminiApiClient(
     suspend fun fetchAvailableModels(): List<GeminiModelInfo> = withContext(Dispatchers.IO) {
         val enabledKeys = agentRepository.apiKeyDao.getEnabledApiKeys()
         val defaultModels = listOf(
-            GeminiModelInfo("gemini-2.5-flash", "Gemini 2.5 Flash", "Ultra-fast, state-of-the-art model for multimodal browser automation.", listOf("generateContent")),
-            GeminiModelInfo("gemini-3.5-flash", "Gemini 3.5 Flash", "Latest speed and reasoning model for browser operations.", listOf("generateContent")),
-            GeminiModelInfo("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview", "Advanced complex reasoning and tool calling.", listOf("generateContent")),
-            GeminiModelInfo("gemini-2.5-pro", "Gemini 2.5 Pro", "High intelligence model for in-depth web tasks.", listOf("generateContent")),
-            GeminiModelInfo("gemini-2.5-flash-image", "Gemini 2.5 Flash Image", "High performance multimodal and visual understanding.", listOf("generateContent"))
+            GeminiModelInfo("gemini-2.0-flash", "Gemini 2.0 Flash", "Ultra-fast, state-of-the-art model for multimodal browser automation.", listOf("generateContent")),
+            GeminiModelInfo("gemini-1.5-flash", "Gemini 1.5 Flash", "Lightweight, high-speed model for web automation.", listOf("generateContent")),
+            GeminiModelInfo("gemini-1.5-pro", "Gemini 1.5 Pro", "Advanced complex reasoning and tool calling.", listOf("generateContent")),
+            GeminiModelInfo("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite", "Cost-effective, rapid execution model.", listOf("generateContent"))
         )
 
         val activeKey = enabledKeys.firstOrNull()?.apiKey ?: return@withContext defaultModels

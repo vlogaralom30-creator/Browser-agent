@@ -34,7 +34,7 @@ data class ApiKeyEntity(
 data class AgentConfigEntity(
     @PrimaryKey
     val id: Int = 1,
-    val activeModel: String = "gemini-2.5-flash",
+    val activeModel: String = "gemini-2.0-flash",
     val permissionMode: String = "FULL_ACCESS", // FULL_ACCESS, CONFIRM_ALL
     val isAutoFailoverEnabled: Boolean = true,
     val isVisionEnabled: Boolean = true,
