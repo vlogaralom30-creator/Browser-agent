@@ -1,0 +1,6 @@
+{
+  "name": "Browser",
+  "description": "A fast, modern Android web browser with multi-tabs, incognito mode, and an autonomous AI Browser Agent powered by Gemini API for web automation and prompt collection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
