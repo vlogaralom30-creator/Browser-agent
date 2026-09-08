@@ -79,7 +79,7 @@ fun ModelSelectionDialog(
                         modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Select Gemini Model", style = MaterialTheme.typography.titleMedium)
+                    Text("Select AI Model", style = MaterialTheme.typography.titleMedium)
                 }
 
                 IconButton(

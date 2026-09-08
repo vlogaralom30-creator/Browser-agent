@@ -287,4 +287,50 @@ object BrowserTools {
         })
         return toolsArray
     }
+
+    fun getOpenAiToolsDeclaration(): JSONArray {
+        val geminiTools = getGeminiToolsDeclaration()
+        if (geminiTools.length() == 0) return JSONArray()
+
+        val firstObj = geminiTools.getJSONObject(0)
+        val funcDecls = firstObj.optJSONArray("functionDeclarations") ?: return JSONArray()
+
+        val openAiTools = JSONArray()
+        for (i in 0 until funcDecls.length()) {
+            val decl = funcDecls.getJSONObject(i)
+            val name = decl.getString("name")
+            val desc = decl.optString("description", "")
+            val params = decl.optJSONObject("parameters") ?: JSONObject().apply { put("type", "OBJECT") }
+
+            // Convert Gemini type names (OBJECT -> object, STRING -> string, etc)
+            val convertedParams = convertSchemaTypesToOpenAi(params)
+
+            openAiTools.put(JSONObject().apply {
+                put("type", "function")
+                put("function", JSONObject().apply {
+                    put("name", name)
+                    put("description", desc)
+                    put("parameters", convertedParams)
+                })
+            })
+        }
+        return openAiTools
+    }
+
+    private fun convertSchemaTypesToOpenAi(json: JSONObject): JSONObject {
+        val copy = JSONObject(json.toString())
+        if (copy.has("type")) {
+            val typeStr = copy.getString("type").lowercase()
+            copy.put("type", typeStr)
+        }
+        if (copy.has("properties")) {
+            val props = copy.getJSONObject("properties")
+            val keys = props.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                props.put(k, convertSchemaTypesToOpenAi(props.getJSONObject(k)))
+            }
+        }
+        return copy
+    }
 }

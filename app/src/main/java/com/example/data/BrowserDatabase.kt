@@ -35,7 +35,7 @@ import com.example.data.agent.SavedPromptEntity
         AgentMemoryEntity::class,
         SavedPromptEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class BrowserDatabase : RoomDatabase() {

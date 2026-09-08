@@ -17,7 +17,9 @@ data class ApiKeyEntity(
     val successCount: Int = 0,
     val lastUsedAt: Long = 0L,
     val lastError: String? = null,
-    val priorityOrder: Int = 0
+    val priorityOrder: Int = 0,
+    val provider: String = "GEMINI", // "GEMINI", "GROQ", "OPENROUTER", "OPENAI", "CUSTOM"
+    val baseUrl: String = ""
 ) {
     fun getMaskedKey(): String {
         return if (apiKey.length > 8) {

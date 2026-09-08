@@ -82,6 +82,8 @@ fun ApiKeyManagerScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var newKeyInput by remember { mutableStateOf("") }
     var newKeyLabel by remember { mutableStateOf("") }
+    var selectedProvider by remember { mutableStateOf("GEMINI") } // "GEMINI", "OPENROUTER", "OPENAI"
+    var customBaseUrl by remember { mutableStateOf("") }
     var keyToDelete by remember { mutableStateOf<ApiKeyEntity?>(null) }
 
     // Map of key ID to testing status: null = idle, "TESTING" = in progress, or result string
@@ -177,7 +179,11 @@ fun ApiKeyManagerScreen(
                     onTestKey = {
                         testStatusMap[keyEntity.id] = "TESTING"
                         coroutineScope.launch {
-                            val (success, msg) = geminiApiClient.testApiKey(keyEntity.apiKey)
+                            val (success, msg) = geminiApiClient.testApiKey(
+                                apiKey = keyEntity.apiKey,
+                                provider = keyEntity.provider,
+                                baseUrl = keyEntity.baseUrl
+                            )
                             testStatusMap[keyEntity.id] = if (success) "VALID: $msg" else "ERROR: $msg"
                             if (success) {
                                 agentRepository.markKeySuccess(keyEntity.id)
@@ -202,51 +208,109 @@ fun ApiKeyManagerScreen(
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("Add Gemini API Key") },
+            title = { Text("Add AI API Key") },
             text = {
                 Column {
                     Text(
-                        text = "Enter a Google AI Studio / Gemini API key. It will be added to the failover pool.",
+                        text = "Support Groq Free (LPU speed), Google Gemini, OpenRouter, or OpenAI-compatible endpoints.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("Provider Type", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf(
+                            "GROQ" to "Groq Free",
+                            "GEMINI" to "Gemini",
+                            "OPENROUTER" to "OpenRouter",
+                            "OPENAI" to "Custom/OpenAI"
+                        ).forEach { (provKey, provName) ->
+                            OutlinedButton(
+                                onClick = { selectedProvider = provKey },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (selectedProvider == provKey) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                                ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                modifier = Modifier.weight(1f).height(36.dp)
+                            ) {
+                                Text(provName, fontSize = 10.sp, fontWeight = if (selectedProvider == provKey) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = newKeyLabel,
                         onValueChange = { newKeyLabel = it },
                         label = { Text("Label (optional)") },
-                        placeholder = { Text("e.g. Personal Free Tier") },
+                        placeholder = { Text(if (selectedProvider == "GROQ") "e.g. My Groq Free Key" else if (selectedProvider == "OPENROUTER") "e.g. OpenRouter Free Tier" else "e.g. Personal Gemini Key") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("api_key_label_input")
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newKeyInput,
-                        onValueChange = { newKeyInput = it },
+                        onValueChange = { input ->
+                            newKeyInput = input
+                            // Auto detect provider from key prefix
+                            if (input.trim().startsWith("gsk_")) {
+                                selectedProvider = "GROQ"
+                            } else if (input.trim().startsWith("sk-or-")) {
+                                selectedProvider = "OPENROUTER"
+                            } else if (input.trim().startsWith("AIzaSy")) {
+                                selectedProvider = "GEMINI"
+                            }
+                        },
                         label = { Text("API Key") },
-                        placeholder = { Text("AIzaSy...") },
+                        placeholder = { Text(if (selectedProvider == "GROQ") "gsk_..." else if (selectedProvider == "OPENROUTER") "sk-or-v1-..." else if (selectedProvider == "GEMINI") "AIzaSy..." else "sk-...") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("api_key_value_input")
                     )
+
+                    if (selectedProvider == "OPENAI") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = customBaseUrl,
+                            onValueChange = { customBaseUrl = it },
+                            label = { Text("Custom Base URL (optional)") },
+                            placeholder = { Text("https://api.openai.com/v1") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         if (newKeyInput.isNotBlank()) {
-                            val label = newKeyLabel.ifBlank { "Custom Key ${apiKeys.size + 1}" }
+                            val provLabel = when (selectedProvider) {
+                                "GROQ" -> "Groq Key"
+                                "OPENROUTER" -> "OpenRouter Key"
+                                "OPENAI" -> "OpenAI Key"
+                                else -> "Gemini Key"
+                            }
+                            val label = newKeyLabel.ifBlank { "$provLabel ${apiKeys.size + 1}" }
                             coroutineScope.launch {
                                 agentRepository.apiKeyDao.insertApiKey(
                                     ApiKeyEntity(
                                         apiKey = newKeyInput.trim(),
                                         label = label,
                                         isEnabled = true,
-                                        priorityOrder = apiKeys.size
+                                        priorityOrder = apiKeys.size,
+                                        provider = selectedProvider,
+                                        baseUrl = customBaseUrl.trim()
                                     )
                                 )
                                 showAddDialog = false
                                 newKeyInput = ""
                                 newKeyLabel = ""
+                                customBaseUrl = ""
                             }
                         }
                     },
@@ -320,11 +384,37 @@ fun ApiKeyCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = keyEntity.label,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = keyEntity.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        val provName = when (keyEntity.provider) {
+                            "GROQ" -> "Groq Free"
+                            "OPENROUTER" -> "OpenRouter"
+                            "OPENAI" -> "OpenAI"
+                            else -> "Gemini"
+                        }
+                        val badgeColor = when (keyEntity.provider) {
+                            "GROQ" -> Color(0xFFF57C00)
+                            "OPENROUTER" -> Color(0xFF512DA8)
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+                        Surface(
+                            color = badgeColor.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = provName,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = badgeColor,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
                     Text(
                         text = keyEntity.getMaskedKey(),
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),

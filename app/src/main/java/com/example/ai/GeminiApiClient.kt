@@ -80,6 +80,30 @@ class GeminiApiClient(
 
         for (apiKeyEntity in sortedKeys) {
             try {
+                val isGroq = apiKeyEntity.provider == "GROQ" ||
+                        apiKeyEntity.apiKey.startsWith("gsk_") ||
+                        apiKeyEntity.baseUrl.contains("groq.com")
+
+                val isOpenRouterOrOpenAiOrGroq = isGroq ||
+                        apiKeyEntity.provider == "OPENROUTER" ||
+                        apiKeyEntity.provider == "OPENAI" ||
+                        apiKeyEntity.apiKey.startsWith("sk-or-") ||
+                        apiKeyEntity.apiKey.startsWith("sk-") ||
+                        apiKeyEntity.baseUrl.isNotBlank()
+
+                if (isOpenRouterOrOpenAiOrGroq) {
+                    val result = executeOpenAiCompatibleRequest(
+                        apiKeyEntity = apiKeyEntity,
+                        model = model,
+                        contents = contents,
+                        systemInstruction = systemInstruction,
+                        includeTools = includeTools,
+                        temperature = temperature
+                    )
+                    agentRepository.markKeySuccess(apiKeyEntity.id)
+                    return@withContext result
+                }
+
                 val requestPayload = JSONObject().apply {
                     put("contents", contents)
 
@@ -189,7 +213,8 @@ class GeminiApiClient(
                 agentRepository.markKeyFailure(apiKeyEntity.id, "Network error: ${e.message}", isQuotaExhausted = false)
                 lastError = "Network error with ${apiKeyEntity.getMaskedKey()}: ${e.message}"
             } catch (e: Exception) {
-                lastError = "Error: ${e.localizedMessage}"
+                agentRepository.markKeyFailure(apiKeyEntity.id, e.message ?: "Unknown error", isQuotaExhausted = false)
+                lastError = "Error with ${apiKeyEntity.getMaskedKey()}: ${e.localizedMessage}"
             }
         }
 
@@ -200,13 +225,231 @@ class GeminiApiClient(
         )
     }
 
-    suspend fun testApiKey(apiKey: String, model: String = "gemini-2.0-flash"): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+    private fun executeOpenAiCompatibleRequest(
+        apiKeyEntity: ApiKeyEntity,
+        model: String,
+        contents: JSONArray,
+        systemInstruction: String?,
+        includeTools: Boolean,
+        temperature: Float
+    ): GeminiResponse {
+        val isGroq = apiKeyEntity.provider == "GROQ" || apiKeyEntity.apiKey.startsWith("gsk_") || apiKeyEntity.baseUrl.contains("groq.com")
+
+        val endpoint = if (apiKeyEntity.baseUrl.isNotBlank()) {
+            val base = apiKeyEntity.baseUrl.trimEnd('/')
+            if (base.endsWith("/chat/completions")) base else "$base/chat/completions"
+        } else if (isGroq) {
+            "https://api.groq.com/openai/v1/chat/completions"
+        } else {
+            "https://openrouter.ai/api/v1/chat/completions"
+        }
+
+        var targetModel = model.removePrefix("models/")
+        if (isGroq) {
+            if (targetModel.contains("gemini") || targetModel.isBlank() || targetModel == "gpt-4o-mini") {
+                targetModel = "llama-3.3-70b-versatile"
+            }
+        } else if (targetModel.contains("gemini-2.5-flash")) {
+            targetModel = if (apiKeyEntity.provider == "OPENROUTER" || apiKeyEntity.apiKey.startsWith("sk-or-")) {
+                "google/gemini-2.0-flash-exp:free"
+            } else {
+                "gemini-2.0-flash"
+            }
+        }
+
+        val messages = JSONArray()
+
+        if (!systemInstruction.isNullOrBlank()) {
+            messages.put(JSONObject().apply {
+                put("role", "system")
+                put("content", systemInstruction)
+            })
+        }
+
+        for (i in 0 until contents.length()) {
+            val c = contents.getJSONObject(i)
+            val role = c.optString("role", "user")
+            val openAiRole = if (role == "model") "assistant" else if (role == "system") "system" else "user"
+
+            val parts = c.optJSONArray("parts")
+            val textBuilder = StringBuilder()
+            val toolCallsList = JSONArray()
+
+            if (parts != null) {
+                for (j in 0 until parts.length()) {
+                    val part = parts.getJSONObject(j)
+                    if (part.has("text")) {
+                        textBuilder.append(part.getString("text"))
+                    }
+                    if (part.has("functionCall")) {
+                        val fc = part.getJSONObject("functionCall")
+                        toolCallsList.put(JSONObject().apply {
+                            put("id", "call_${System.currentTimeMillis()}_$j")
+                            put("type", "function")
+                            put("function", JSONObject().apply {
+                                put("name", fc.getString("name"))
+                                put("arguments", fc.optJSONObject("args")?.toString() ?: "{}")
+                            })
+                        })
+                    }
+                    if (part.has("functionResponse")) {
+                        val fr = part.getJSONObject("functionResponse")
+                        val name = fr.optString("name", "tool_result")
+                        val respObj = fr.optJSONObject("response") ?: JSONObject()
+                        messages.put(JSONObject().apply {
+                            put("role", "tool")
+                            put("tool_call_id", "call_$name")
+                            put("content", respObj.toString())
+                        })
+                    }
+                }
+            }
+
+            if (textBuilder.isNotEmpty() || toolCallsList.length() > 0) {
+                val msgObj = JSONObject().apply {
+                    put("role", openAiRole)
+                    if (textBuilder.isNotEmpty()) {
+                        put("content", textBuilder.toString())
+                    } else {
+                        put("content", "")
+                    }
+                    if (toolCallsList.length() > 0) {
+                        put("tool_calls", toolCallsList)
+                    }
+                }
+                messages.put(msgObj)
+            }
+        }
+
+        val payload = JSONObject().apply {
+            put("model", targetModel)
+            put("messages", messages)
+            if (includeTools) {
+                put("tools", BrowserTools.getOpenAiToolsDeclaration())
+            }
+            put("temperature", temperature)
+        }
+
+        val reqBuilder = Request.Builder()
+            .url(endpoint)
+            .post(payload.toString().toRequestBody(jsonMediaType))
+            .addHeader("Authorization", "Bearer ${apiKeyEntity.apiKey.trim()}")
+            .addHeader("HTTP-Referer", "https://github.com/vlogaralom30-creator/Browser-agent")
+            .addHeader("X-Title", "Browser Agent")
+
+        val response = client.newCall(reqBuilder.build()).execute()
+        val responseCode = response.code
+        val responseBody = response.body?.string() ?: ""
+
+        if (response.isSuccessful) {
+            val json = JSONObject(responseBody)
+            val choices = json.optJSONArray("choices")
+            val firstChoice = choices?.optJSONObject(0)
+            val message = firstChoice?.optJSONObject("message")
+
+            var text: String? = message?.optString("content", null)
+            if (text?.isBlank() == true) text = null
+
+            val functionCalls = mutableListOf<FunctionCall>()
+            val toolCalls = message?.optJSONArray("tool_calls")
+            if (toolCalls != null) {
+                for (i in 0 until toolCalls.length()) {
+                    val tc = toolCalls.getJSONObject(i)
+                    val func = tc.optJSONObject("function")
+                    if (func != null) {
+                        val name = func.getString("name")
+                        val argsStr = func.optString("arguments", "{}")
+                        val argsObj = try { JSONObject(argsStr) } catch (e: Exception) { JSONObject() }
+                        functionCalls.add(FunctionCall(name, argsObj))
+                    }
+                }
+            }
+
+            return GeminiResponse.Success(
+                text = text,
+                functionCalls = functionCalls,
+                usedKeyId = apiKeyEntity.id,
+                rawResponse = json
+            )
+        } else {
+            val errorMsg = try {
+                JSONObject(responseBody).optJSONObject("error")?.optString("message") ?: "HTTP $responseCode"
+            } catch (e: Exception) {
+                "HTTP $responseCode: $responseBody"
+            }
+            throw Exception("API Error ($responseCode): $errorMsg")
+        }
+    }
+
+    suspend fun testApiKey(apiKey: String, model: String = "gemini-2.0-flash", provider: String = "GEMINI", baseUrl: String = ""): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val trimmedKey = apiKey.trim()
+        val isGroq = provider == "GROQ" || trimmedKey.startsWith("gsk_") || baseUrl.contains("groq.com")
+        val isOpenRouter = provider == "OPENROUTER" || trimmedKey.startsWith("sk-or-") || baseUrl.contains("openrouter")
+        val isOpenAi = provider == "OPENAI" || (trimmedKey.startsWith("sk-") && !isOpenRouter && !isGroq) || baseUrl.isNotBlank()
+
+        if (isGroq || isOpenRouter || isOpenAi) {
+            try {
+                val endpoint = if (baseUrl.isNotBlank()) {
+                    val base = baseUrl.trimEnd('/')
+                    if (base.endsWith("/chat/completions")) base else "$base/chat/completions"
+                } else if (isGroq) {
+                    "https://api.groq.com/openai/v1/chat/completions"
+                } else {
+                    "https://openrouter.ai/api/v1/chat/completions"
+                }
+
+                val testModel = if (model.contains("/") || (isGroq && !model.contains("gemini"))) {
+                    model
+                } else if (isGroq) {
+                    "llama-3.3-70b-versatile"
+                } else if (isOpenRouter) {
+                    "google/gemini-2.0-flash-exp:free"
+                } else {
+                    "gpt-4o-mini"
+                }
+
+                val payload = JSONObject().apply {
+                    put("model", testModel)
+                    put("messages", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("role", "user")
+                            put("content", "Ping test. Reply OK.")
+                        })
+                    })
+                }
+
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .post(payload.toString().toRequestBody(jsonMediaType))
+                    .addHeader("Authorization", "Bearer $trimmedKey")
+                    .addHeader("HTTP-Referer", "https://github.com/vlogaralom30-creator/Browser-agent")
+                    .addHeader("X-Title", "Browser Agent")
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    val provLabel = if (isGroq) "Groq" else if (isOpenRouter) "OpenRouter" else "OpenAI"
+                    return@withContext Pair(true, "$provLabel key is active and verified.")
+                } else {
+                    val msg = try {
+                        JSONObject(body).optJSONObject("error")?.optString("message") ?: "HTTP ${response.code}"
+                    } catch (e: Exception) {
+                        "HTTP ${response.code}"
+                    }
+                    return@withContext Pair(false, msg)
+                }
+            } catch (e: Exception) {
+                return@withContext Pair(false, "Connection error: ${e.localizedMessage}")
+            }
+        }
+
         try {
             var sanitizedModel = model.removePrefix("models/")
             if (sanitizedModel.contains("gemini-2.5-flash")) {
                 sanitizedModel = "gemini-2.0-flash"
             }
-            var url = "https://generativelanguage.googleapis.com/v1beta/models/$sanitizedModel:generateContent?key=$apiKey"
+            var url = "https://generativelanguage.googleapis.com/v1beta/models/$sanitizedModel:generateContent?key=$trimmedKey"
             val payload = JSONObject().apply {
                 put("contents", JSONArray().apply {
                     put(JSONObject().apply {
@@ -227,7 +470,7 @@ class GeminiApiClient(
 
             // Fallback retry if model is obsolete
             if (!response.isSuccessful && (body.contains("no longer available", ignoreCase = true) || body.contains("not found", ignoreCase = true))) {
-                val fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
+                val fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$trimmedKey"
                 val fallbackReq = Request.Builder()
                     .url(fallbackUrl)
                     .post(payload.toString().toRequestBody(jsonMediaType))
@@ -256,24 +499,122 @@ class GeminiApiClient(
 
     suspend fun fetchAvailableModels(): List<GeminiModelInfo> = withContext(Dispatchers.IO) {
         val enabledKeys = agentRepository.apiKeyDao.getEnabledApiKeys()
-        val defaultModels = listOf(
+
+        val defaultGroqModels = listOf(
+            GeminiModelInfo("llama-3.3-70b-versatile", "Llama 3.3 70B Versatile (Groq Free)", "Meta's flagship 70B model running at ultra-fast speed on Groq LPUs.", listOf("generateContent")),
+            GeminiModelInfo("llama-3.1-8b-instant", "Llama 3.1 8B Instant (Groq Free)", "Ultra-fast, low-latency 8B model on Groq.", listOf("generateContent")),
+            GeminiModelInfo("deepseek-r1-distill-llama-70b", "DeepSeek R1 Distill Llama 70B (Groq Free)", "High-reasoning model distilled by DeepSeek on Groq.", listOf("generateContent")),
+            GeminiModelInfo("mixtral-8x7b-32768", "Mixtral 8x7B 32k (Groq Free)", "Mistral AI MoE model with 32k context on Groq.", listOf("generateContent")),
+            GeminiModelInfo("gemma2-9b-it", "Gemma 2 9B Instruct (Groq Free)", "Google's open weights Gemma 2 model on Groq.", listOf("generateContent"))
+        )
+
+        val defaultGeminiModels = listOf(
             GeminiModelInfo("gemini-2.0-flash", "Gemini 2.0 Flash", "Ultra-fast, state-of-the-art model for multimodal browser automation.", listOf("generateContent")),
             GeminiModelInfo("gemini-1.5-flash", "Gemini 1.5 Flash", "Lightweight, high-speed model for web automation.", listOf("generateContent")),
             GeminiModelInfo("gemini-1.5-pro", "Gemini 1.5 Pro", "Advanced complex reasoning and tool calling.", listOf("generateContent")),
             GeminiModelInfo("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite", "Cost-effective, rapid execution model.", listOf("generateContent"))
         )
 
-        val activeKey = enabledKeys.firstOrNull()?.apiKey ?: return@withContext defaultModels
+        val defaultOpenRouterModels = listOf(
+            GeminiModelInfo("google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash (OpenRouter Free)", "Google's 2.0 Flash via OpenRouter Free Tier.", listOf("generateContent")),
+            GeminiModelInfo("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B Instruct (Free)", "Meta 70B open weights model via OpenRouter Free Tier.", listOf("generateContent")),
+            GeminiModelInfo("deepseek/deepseek-r1:free", "DeepSeek R1 Reasoning (Free)", "DeepSeek premier reasoning model via OpenRouter Free Tier.", listOf("generateContent")),
+            GeminiModelInfo("qwen/qwen-2.5-72b-instruct:free", "Qwen 2.5 72B Instruct (Free)", "Alibaba 72B instruct model via OpenRouter Free Tier.", listOf("generateContent")),
+            GeminiModelInfo("mistralai/mistral-7b-instruct:free", "Mistral 7B Instruct (Free)", "Fast 7B model via OpenRouter Free Tier.", listOf("generateContent")),
+            GeminiModelInfo("openai/gpt-4o-mini", "GPT-4o Mini", "OpenAI lightweight multimodal model.", listOf("generateContent")),
+            GeminiModelInfo("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet", "Anthropic top reasoning model.", listOf("generateContent")),
+            GeminiModelInfo("deepseek/deepseek-chat", "DeepSeek V3 Chat", "DeepSeek V3 chat model via OpenRouter.", listOf("generateContent"))
+        )
+
+        val activeKey = enabledKeys.firstOrNull() ?: return@withContext defaultGroqModels + defaultGeminiModels + defaultOpenRouterModels
+
+        val isGroq = activeKey.provider == "GROQ" || activeKey.apiKey.startsWith("gsk_") || activeKey.baseUrl.contains("groq.com")
+        val isOpenRouter = activeKey.provider == "OPENROUTER" || activeKey.apiKey.startsWith("sk-or-") || activeKey.baseUrl.contains("openrouter")
+
+        if (isGroq) {
+            try {
+                val url = "https://api.groq.com/openai/v1/models"
+                val request = Request.Builder().url(url).addHeader("Authorization", "Bearer ${activeKey.apiKey.trim()}").get().build()
+                val response = client.newCall(request).execute()
+                val body = response.body?.string() ?: ""
+
+                if (response.isSuccessful) {
+                    val json = JSONObject(body)
+                    val dataArr = json.optJSONArray("data")
+                    if (dataArr != null && dataArr.length() > 0) {
+                        val fetched = mutableListOf<GeminiModelInfo>()
+                        for (i in 0 until dataArr.length()) {
+                            val m = dataArr.getJSONObject(i)
+                            val id = m.getString("id")
+                            fetched.add(
+                                GeminiModelInfo(
+                                    name = id,
+                                    displayName = "$id (Groq Free)",
+                                    description = "Groq ultra-fast LPU inference model",
+                                    supportedGenerationMethods = listOf("generateContent")
+                                )
+                            )
+                        }
+                        if (fetched.isNotEmpty()) {
+                            return@withContext fetched + defaultGroqModels + defaultGeminiModels + defaultOpenRouterModels
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("GeminiApiClient", "Failed to fetch Groq models: ${e.message}")
+            }
+            return@withContext defaultGroqModels + defaultGeminiModels + defaultOpenRouterModels
+        }
+
+        if (isOpenRouter) {
+            try {
+                val url = "https://openrouter.ai/api/v1/models"
+                val request = Request.Builder().url(url).addHeader("Authorization", "Bearer ${activeKey.apiKey}").get().build()
+                val response = client.newCall(request).execute()
+                val body = response.body?.string() ?: ""
+
+                if (response.isSuccessful) {
+                    val json = JSONObject(body)
+                    val dataArr = json.optJSONArray("data")
+                    if (dataArr != null && dataArr.length() > 0) {
+                        val fetched = mutableListOf<GeminiModelInfo>()
+                        for (i in 0 until dataArr.length()) {
+                            val m = dataArr.getJSONObject(i)
+                            val id = m.getString("id")
+                            val name = m.optString("name", id)
+                            val desc = m.optString("description", "OpenRouter model")
+                            val isFree = id.contains(":free")
+                            val displayName = if (isFree) "$name [FREE]" else name
+
+                            fetched.add(
+                                GeminiModelInfo(
+                                    name = id,
+                                    displayName = displayName,
+                                    description = desc,
+                                    supportedGenerationMethods = listOf("generateContent")
+                                )
+                            )
+                        }
+                        // Sort free models to the top
+                        val sorted = fetched.sortedByDescending { it.name.contains(":free") }
+                        return@withContext sorted.take(60) // Return top 60 models
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("GeminiApiClient", "Failed to fetch OpenRouter models: ${e.message}")
+            }
+            return@withContext defaultOpenRouterModels + defaultGeminiModels
+        }
 
         try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models?key=$activeKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models?key=${activeKey.apiKey}"
             val request = Request.Builder().url(url).get().build()
             val response = client.newCall(request).execute()
             val body = response.body?.string() ?: ""
 
             if (response.isSuccessful) {
                 val json = JSONObject(body)
-                val modelsArray = json.optJSONArray("models") ?: return@withContext defaultModels
+                val modelsArray = json.optJSONArray("models") ?: return@withContext defaultGeminiModels + defaultOpenRouterModels
                 val fetched = mutableListOf<GeminiModelInfo>()
                 for (i in 0 until modelsArray.length()) {
                     val m = modelsArray.getJSONObject(i)
@@ -287,7 +628,6 @@ class GeminiApiClient(
                         }
                     }
 
-                    // Filter only models that support content generation and are gemini
                     if (methods.contains("generateContent") && cleanName.startsWith("gemini", ignoreCase = true)) {
                         fetched.add(
                             GeminiModelInfo(
@@ -300,13 +640,13 @@ class GeminiApiClient(
                     }
                 }
                 if (fetched.isNotEmpty()) {
-                    return@withContext fetched
+                    return@withContext fetched + defaultOpenRouterModels
                 }
             }
         } catch (e: Exception) {
             Log.w("GeminiApiClient", "Failed to fetch live models: ${e.message}")
         }
-        return@withContext defaultModels
+        return@withContext defaultGeminiModels + defaultOpenRouterModels
     }
 
     companion object {
