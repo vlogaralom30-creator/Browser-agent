@@ -246,15 +246,17 @@ class GeminiApiClient(
 
         var targetModel = model.removePrefix("models/")
         if (isGroq) {
-            if (targetModel.contains("gemini") || targetModel.isBlank() || targetModel == "gpt-4o-mini") {
-                targetModel = "llama-3.3-70b-versatile"
+            if (targetModel.contains("gemini") || targetModel.isBlank() || targetModel == "gpt-4o-mini" || targetModel == "llama-3.3-70b-versatile") {
+                targetModel = "llama-3.1-8b-instant"
             }
         } else if (targetModel.contains("gemini-2.5-flash")) {
             targetModel = if (apiKeyEntity.provider == "OPENROUTER" || apiKeyEntity.apiKey.startsWith("sk-or-")) {
-                "google/gemini-2.0-flash-exp:free"
+                "google/gemini-1.5-flash:free"
             } else {
                 "gemini-2.0-flash"
             }
+        } else if (targetModel == "google/gemini-2.0-flash-exp:free") {
+            targetModel = "google/gemini-1.5-flash:free"
         }
 
         val messages = JSONArray()
@@ -399,11 +401,13 @@ class GeminiApiClient(
                 }
 
                 val testModel = if (model.contains("/") || (isGroq && !model.contains("gemini"))) {
-                    model
+                    if (model == "llama-3.3-70b-versatile") "llama-3.1-8b-instant"
+                    else if (model == "google/gemini-2.0-flash-exp:free") "google/gemini-1.5-flash:free"
+                    else model
                 } else if (isGroq) {
-                    "llama-3.3-70b-versatile"
+                    "llama-3.1-8b-instant"
                 } else if (isOpenRouter) {
-                    "google/gemini-2.0-flash-exp:free"
+                    "google/gemini-1.5-flash:free"
                 } else {
                     "gpt-4o-mini"
                 }
@@ -501,24 +505,45 @@ class GeminiApiClient(
         val enabledKeys = agentRepository.apiKeyDao.getEnabledApiKeys()
 
         val defaultGroqModels = listOf(
-            GeminiModelInfo("llama-3.3-70b-versatile", "Llama 3.3 70B Versatile (Groq Free)", "Meta's flagship 70B model running at ultra-fast speed on Groq LPUs.", listOf("generateContent")),
             GeminiModelInfo("llama-3.1-8b-instant", "Llama 3.1 8B Instant (Groq Free)", "Ultra-fast, low-latency 8B model on Groq.", listOf("generateContent")),
+            GeminiModelInfo("llama3-70b-8192", "Llama 3 70B (Groq Free)", "Meta's 70B model with 8192 context on Groq.", listOf("generateContent")),
             GeminiModelInfo("deepseek-r1-distill-llama-70b", "DeepSeek R1 Distill Llama 70B (Groq Free)", "High-reasoning model distilled by DeepSeek on Groq.", listOf("generateContent")),
             GeminiModelInfo("mixtral-8x7b-32768", "Mixtral 8x7B 32k (Groq Free)", "Mistral AI MoE model with 32k context on Groq.", listOf("generateContent")),
             GeminiModelInfo("gemma2-9b-it", "Gemma 2 9B Instruct (Groq Free)", "Google's open weights Gemma 2 model on Groq.", listOf("generateContent"))
         )
 
         val defaultGeminiModels = listOf(
-            GeminiModelInfo("gemini-2.0-flash", "Gemini 2.0 Flash", "Ultra-fast, state-of-the-art model for multimodal browser automation.", listOf("generateContent")),
             GeminiModelInfo("gemini-1.5-flash", "Gemini 1.5 Flash", "Lightweight, high-speed model for web automation.", listOf("generateContent")),
+            GeminiModelInfo("gemini-2.0-flash", "Gemini 2.0 Flash", "Ultra-fast, state-of-the-art model for multimodal browser automation.", listOf("generateContent")),
             GeminiModelInfo("gemini-1.5-pro", "Gemini 1.5 Pro", "Advanced complex reasoning and tool calling.", listOf("generateContent")),
             GeminiModelInfo("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite", "Cost-effective, rapid execution model.", listOf("generateContent"))
         )
 
         val defaultOpenRouterModels = listOf(
-            GeminiModelInfo("google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash (OpenRouter Free)", "Google's 2.0 Flash via OpenRouter Free Tier.", listOf("generateContent")),
+            GeminiModelInfo("openrouter/free", "Free Models Auto Router [BEST FREE]", "Automatically routes prompts to the best active free model on OpenRouter.", listOf("generateContent")),
+            GeminiModelInfo("google/gemini-1.5-flash:free", "Gemini 1.5 Flash (OpenRouter Free)", "Google's 1.5 Flash via OpenRouter Free Tier.", listOf("generateContent")),
+            GeminiModelInfo("google/gemini-2.0-flash-lite-001:free", "Gemini 2.0 Flash Lite (OpenRouter Free)", "Google's 2.0 Flash Lite via OpenRouter Free Tier.", listOf("generateContent")),
             GeminiModelInfo("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B Instruct (Free)", "Meta 70B open weights model via OpenRouter Free Tier.", listOf("generateContent")),
             GeminiModelInfo("deepseek/deepseek-r1:free", "DeepSeek R1 Reasoning (Free)", "DeepSeek premier reasoning model via OpenRouter Free Tier.", listOf("generateContent")),
+            GeminiModelInfo("nvidia/nemotron-3-super:free", "Nemotron 3 Super (Free)", "NVIDIA Nemotron 3 Super model on OpenRouter Free.", listOf("generateContent")),
+            GeminiModelInfo("nvidia/nemotron-3.5-lightning:free", "Nemotron 3.5 Lightning (Free)", "NVIDIA Nemotron 3.5 Lightning ultra-fast model.", listOf("generateContent")),
+            GeminiModelInfo("google/gemma-4-31b:free", "Gemma 4 31B (Free)", "Google Gemma open weights 31B model.", listOf("generateContent")),
+            GeminiModelInfo("google/gemma-4-26b-a4b:free", "Gemma 4 26B A4B (Free)", "Google Gemma 26B model.", listOf("generateContent")),
+            GeminiModelInfo("liquid/lfm2.5-2.6b:free", "LFM 2.5 2.6B (Free)", "Liquid Foundation Model 2.5.", listOf("generateContent")),
+            GeminiModelInfo("lingyiwan/ling-3.0-flash-sante:free", "Ling 3.0 Flash Sante (Free)", "Ling 3.0 Flash Sante model.", listOf("generateContent")),
+            GeminiModelInfo("lingyiwan/ling-3.0-flash-fin:free", "Ling 3.0 Flash Fin (Free)", "Ling 3.0 Flash Fin model.", listOf("generateContent")),
+            GeminiModelInfo("dots/dots3-note-preview:free", "Dots3-Note Preview (Free)", "Dots3 Note preview model.", listOf("generateContent")),
+            GeminiModelInfo("flux/flux-tts:free", "Flux TTS (Free)", "Flux Text-To-Speech audio model.", listOf("generateContent")),
+            GeminiModelInfo("inkling/inkling:free", "Inkling (Free)", "Inkling model on OpenRouter.", listOf("generateContent")),
+            GeminiModelInfo("inkling/inkling-small:free", "Inkling Small (Free)", "Inkling Small model.", listOf("generateContent")),
+            GeminiModelInfo("north/north-mini-code:free", "North Mini Code (Free)", "North Mini Code generation model.", listOf("generateContent")),
+            GeminiModelInfo("laguna/laguna-s-2.1:free", "Laguna S 2.1 (Free)", "Laguna S 2.1 model.", listOf("generateContent")),
+            GeminiModelInfo("laguna/laguna-xs-2.1:free", "Laguna XS 2.1 (Free)", "Laguna XS 2.1 model.", listOf("generateContent")),
+            GeminiModelInfo("s2.1/s2.1-pro-free:free", "S2.1 Pro Free (Free)", "S2.1 Pro Free model.", listOf("generateContent")),
+            GeminiModelInfo("nvidia/nemotron-3-ultra:free", "Nemotron 3 Ultra (Free)", "NVIDIA Nemotron 3 Ultra model.", listOf("generateContent")),
+            GeminiModelInfo("nvidia/nemotron-3-nano-omni:free", "Nemotron 3 Nano Omni (Free)", "NVIDIA Nemotron 3 Nano Omni model.", listOf("generateContent")),
+            GeminiModelInfo("nvidia/nemotron-3-embed-1b:free", "Nemotron 3 Embed 1B (Free)", "NVIDIA Nemotron 3 Embed 1B.", listOf("generateContent")),
+            GeminiModelInfo("nvidia/llama-nemotron-rerank-vl-1b-v2:free", "Llama Nemotron Rerank VL 1B V2 (Free)", "NVIDIA Llama Nemotron Rerank VL 1B V2.", listOf("generateContent")),
             GeminiModelInfo("qwen/qwen-2.5-72b-instruct:free", "Qwen 2.5 72B Instruct (Free)", "Alibaba 72B instruct model via OpenRouter Free Tier.", listOf("generateContent")),
             GeminiModelInfo("mistralai/mistral-7b-instruct:free", "Mistral 7B Instruct (Free)", "Fast 7B model via OpenRouter Free Tier.", listOf("generateContent")),
             GeminiModelInfo("openai/gpt-4o-mini", "GPT-4o Mini", "OpenAI lightweight multimodal model.", listOf("generateContent")),
@@ -595,9 +620,10 @@ class GeminiApiClient(
                                 )
                             )
                         }
-                        // Sort free models to the top
-                        val sorted = fetched.sortedByDescending { it.name.contains(":free") }
-                        return@withContext sorted.take(60) // Return top 60 models
+                        // Ensure openrouter/free and top default models are at the top
+                        val sorted = fetched.sortedByDescending { it.name.contains(":free") || it.name == "openrouter/free" }
+                        val combined = (defaultOpenRouterModels + sorted).distinctBy { it.name }
+                        return@withContext combined
                     }
                 }
             } catch (e: Exception) {

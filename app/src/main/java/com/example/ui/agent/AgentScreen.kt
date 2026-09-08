@@ -156,7 +156,7 @@ fun AgentScreen(
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = (config?.activeModel ?: "gemini-2.5-flash").removePrefix("models/"),
+                                        text = (config?.activeModel ?: "gemini-2.0-flash").removePrefix("models/"),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.primary
@@ -508,7 +508,7 @@ fun AgentScreen(
 
     if (showModelSelector) {
         ModelSelectionDialog(
-            currentModel = config?.activeModel ?: "gemini-2.5-flash",
+            currentModel = config?.activeModel ?: "gemini-2.0-flash",
             agentRepository = agentRepository,
             onModelSelected = { selectedModel ->
                 coroutineScope.launch {

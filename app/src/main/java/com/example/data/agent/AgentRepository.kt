@@ -39,7 +39,7 @@ class AgentRepository(context: Context) {
                     maxStepsPerTask = 30
                 )
             )
-        } else if (config.activeModel.contains("gemini-2.5-flash")) {
+        } else if (config.activeModel.contains("gemini-2.5-flash") || config.activeModel == "google/gemini-2.0-flash-exp:free" || config.activeModel == "llama-3.3-70b-versatile") {
             configDao.insertOrUpdateConfig(config.copy(activeModel = "gemini-2.0-flash"))
         }
 
@@ -47,6 +47,8 @@ class AgentRepository(context: Context) {
         val allKeys = apiKeyDao.getAllApiKeysList()
         for (key in allKeys) {
             if (key.lastError?.contains("gemini-2.5-flash", ignoreCase = true) == true ||
+                key.lastError?.contains("gemini-2.0-flash-exp", ignoreCase = true) == true ||
+                key.lastError?.contains("llama-3.3-70b-versatile", ignoreCase = true) == true ||
                 key.lastError?.contains("no longer available", ignoreCase = true) == true
             ) {
                 apiKeyDao.updateApiKey(

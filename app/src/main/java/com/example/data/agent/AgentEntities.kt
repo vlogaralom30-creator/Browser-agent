@@ -5,6 +5,47 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+enum class AiProvider(
+    val providerName: String,
+    val defaultModel: String
+) {
+    GEMINI("Google Gemini", "gemini-1.5-flash"),
+    OPENROUTER("OpenRouter", "google/gemini-1.5-flash:free"),
+    GROQ("Groq", "llama-3.1-8b-instant"),
+    OPENAI("OpenAI", "gpt-4o-mini"),
+    CUSTOM("Custom", "gpt-4o-mini");
+
+    companion object {
+        fun fromString(providerStr: String): AiProvider {
+            return when (providerStr.uppercase()) {
+                "GROQ" -> GROQ
+                "OPENROUTER" -> OPENROUTER
+                "OPENAI" -> OPENAI
+                "CUSTOM" -> CUSTOM
+                else -> GEMINI
+            }
+        }
+    }
+}
+
+data class ApiKeyConfig(
+    val name: String,
+    val apiKey: String,
+    val provider: AiProvider,
+    val customModel: String? = null
+) {
+    // Model string verification logic
+    fun getActiveModel(): String {
+        val model = customModel?.ifBlank { null } ?: provider.defaultModel
+        return when {
+            model.contains("gemini-2.5-flash") -> "gemini-1.5-flash"
+            model == "google/gemini-2.0-flash-exp:free" -> "google/gemini-1.5-flash:free"
+            model == "llama-3.3-70b-versatile" -> "llama-3.1-8b-instant"
+            else -> model
+        }
+    }
+}
+
 @Entity(tableName = "api_keys")
 data class ApiKeyEntity(
     @PrimaryKey(autoGenerate = true)
@@ -29,6 +70,16 @@ data class ApiKeyEntity(
         } else {
             "****"
         }
+    }
+
+    fun toApiKeyConfig(activeModelOverride: String? = null): ApiKeyConfig {
+        val aiProv = AiProvider.fromString(provider)
+        return ApiKeyConfig(
+            name = label,
+            apiKey = apiKey,
+            provider = aiProv,
+            customModel = activeModelOverride
+        )
     }
 }
 
