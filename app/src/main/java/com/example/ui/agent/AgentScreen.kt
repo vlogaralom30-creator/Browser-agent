@@ -16,25 +16,28 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SmartButton
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,44 +46,50 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.ai.ActivityType
+import com.example.ai.AgentActivityItem
+import com.example.ai.AgentStatus
+import com.example.ai.YouTubeVideoItem
 import com.example.data.agent.AgentConfigEntity
+import com.example.data.agent.AgentMessageEntity
 import com.example.ui.BrowserScreen
 import com.example.ui.BrowserViewModel
-
-data class UpcomingFeature(
-    val title: String,
-    val titleBangla: String,
-    val description: String,
-    val descriptionBangla: String,
-    val icon: ImageVector,
-    val badge: String
-)
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,68 +99,42 @@ fun AgentScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val agentController = viewModel.agentController
     val agentRepository = viewModel.agentRepository
-    val config by agentRepository.configFlow.collectAsState(initial = AgentConfigEntity())
-    var showModelSelector by remember { mutableStateOf(false) }
-    var isSubscribed by remember { mutableStateOf(false) }
 
-    val upcomingFeatures = listOf(
-        UpcomingFeature(
-            title = "Autonomous Web Navigation",
-            titleBangla = "স্বয়ংক্রিয় ব্রাউজিং ও ওয়েবসাইট নেভিগেশন",
-            description = "Ask AI to open any site, search topics, fill forms, scroll pages, and extract data automatically.",
-            descriptionBangla = "যেকোনো ওয়েবসাইট ওপেন, সার্চ, অটোমেটিক ফর্ম ফিলআপ ও ডাটা এক্সট্রাক্ট করার ক্ষমতা।",
-            icon = Icons.Default.Language,
-            badge = "CORE AGENT"
-        ),
-        UpcomingFeature(
-            title = "YouTube Studio & Creator Automation",
-            titleBangla = "ইউটিউব স্টুডিও অ্যাসিস্ট্যান্ট",
-            description = "Autonomously update video titles, descriptions, tags, and settings in YouTube Studio.",
-            descriptionBangla = "ইউটিউব ভিডিওর টাইটেল, ডেসক্রিপশন ও ট্যাগ স্বয়ংক্রিয়ভাবে আপডেট করা।",
-            icon = Icons.Default.VideoLibrary,
-            badge = "STUDIO"
-        ),
-        UpcomingFeature(
-            title = "OpenRouter Multi-Model Engine",
-            titleBangla = "মাল্টি AI মডেল ওপেনরাউটার সাপোর্ট",
-            description = "Powered by OpenRouter: Ling 3.0 Flash Sante, Gemini 2.0, DeepSeek R1, Llama 3.3, Nemotron & Gemma.",
-            descriptionBangla = "Ling 3.0, Gemini 2.0, DeepSeek R1, Llama 3.3 সহ বিশ্বের সেরা ফ্রি AI মডেল।",
-            icon = Icons.Default.Psychology,
-            badge = "OPENROUTER"
-        ),
-        UpcomingFeature(
-            title = "Smart API Key Failover Vault",
-            titleBangla = "অটো ফেলওভার ও সিকিউর কি ম্যানেজার",
-            description = "Add multiple API keys. Auto failover to the next key upon rate limits without losing task progress.",
-            descriptionBangla = "মাল্টিপল API কি সাপোর্ট। লিমিট শেষ হলে স্বয়ংক্রিয়ভাবে পরবর্তী কি-তে সুইচ করবে।",
-            icon = Icons.Default.Key,
-            badge = "SECURITY"
-        ),
-        UpcomingFeature(
-            title = "Full Access & Safety Guards",
-            titleBangla = "ফুল অ্যাক্সেস মোড ও সিকিউরিটি গার্ড",
-            description = "Perform normal browser actions autonomously, while strictly asking confirmation before delete or publish.",
-            descriptionBangla = "স্বয়ংক্রিয় কাজ করার পাশাপাশি ডিলিট বা পাবলিশের মতো সংবেদনশীল কাজে পারমিশন চাইবে।",
-            icon = Icons.Default.Security,
-            badge = "SAFETY"
-        ),
-        UpcomingFeature(
-            title = "Persistent Task Checkpoint Memory",
-            titleBangla = "পারসিস্টেন্ট টাস্ক মেমোরি ও রিজিউম",
-            description = "Tasks persist in Room Database. Pause/resume anytime and say 'Continue' to pick up right where left off.",
-            descriptionBangla = "টাস্ক পজ ও রিজিউম করার সুবিধা। অ্যাপ বন্ধ থাকলেও আগের জায়গা থেকেই কাজ শুরু করবে।",
-            icon = Icons.Default.Memory,
-            badge = "MEMORY"
-        ),
-        UpcomingFeature(
-            title = "AI Prompt Extractor & Saved Library",
-            titleBangla = "স্মার্ট প্রম্পট কানেক্টর ও লোকাল লাইব্রেরি",
-            description = "Extract cinematic AI image prompts from webpages and save them into your searchable offline library.",
-            descriptionBangla = "ওয়েবসাইট থেকে AI ইমেজ প্রম্পট বা কনটেন্ট সরাসরি লোকাল ডাটাবেসে সেভ করা।",
-            icon = Icons.Default.BookmarkBorder,
-            badge = "PROMPTS"
-        )
+    val config by agentRepository.configFlow.collectAsState(initial = AgentConfigEntity())
+    val agentStatus by agentController.agentStatus.collectAsState()
+    val currentTask by agentController.currentTask.collectAsState()
+    val activityLogs by agentController.activityLogs.collectAsState()
+    val pointerState by agentController.pointerState.collectAsState()
+    val pendingConfirmation by agentController.pendingConfirmation.collectAsState()
+    val collectedVideos by agentController.collectedVideoResults.collectAsState()
+
+    val conversations by agentRepository.allConversations.collectAsState(initial = emptyList())
+    val activeConversationId = remember(conversations) {
+        conversations.firstOrNull { it.isActive }?.id ?: "default_conv"
+    }
+
+    val dbMessages by agentRepository.messageDao.getMessagesForConversation(activeConversationId)
+        .collectAsState(initial = emptyList())
+
+    var userInputText by remember { mutableStateOf("") }
+    var showModelSelector by remember { mutableStateOf(false) }
+
+    val listState = rememberLazyListState()
+
+    // Auto scroll down on new message or activity
+    LaunchedEffect(dbMessages.size, activityLogs.size, collectedVideos.size) {
+        if (dbMessages.isNotEmpty() || activityLogs.isNotEmpty()) {
+            listState.animateScrollToItem((dbMessages.size + activityLogs.size + collectedVideos.size).coerceAtLeast(0))
+        }
+    }
+
+    val quickPrompts = listOf(
+        "▶️ Arijit Singh er latest song play koro",
+        "🔥 YouTube-এ সবচেয়ে বেশি ভিউ হওয়া গান কোনটা?",
+        "📰 Tech news article খুঁজে দাও",
+        "⚡ 10টা জনপ্রিয় ইউটিউব ভিডিও দেখাও"
     )
 
     Scaffold(
@@ -161,7 +144,7 @@ fun AgentScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primaryContainer),
                             contentAlignment = Alignment.Center
@@ -170,39 +153,32 @@ fun AgentScreen(
                                 Icons.Default.AutoAwesome,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "AI Browser Agent",
+                                text = "Naxxivo AI Agent",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.clickable { showModelSelector = true }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = (config?.activeModel ?: "ling-3.0-flash-sante").removePrefix("models/"),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(
-                                        Icons.Default.Tune,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(10.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF2E7D32))
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (agentStatus == AgentStatus.RUNNING) "OPERATING BROWSER..." else "ONLINE • HUMAN CONTROL",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (agentStatus == AgentStatus.RUNNING) MaterialTheme.colorScheme.primary else Color(0xFF2E7D32)
+                                )
                             }
                         }
                     }
@@ -216,301 +192,383 @@ fun AgentScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { viewModel.navigateToScreen(BrowserScreen.SAVED_PROMPTS) },
-                        modifier = Modifier.testTag("agent_prompts_button")
+                    // Model Chip
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .clickable { showModelSelector = true }
+                            .padding(end = 4.dp)
                     ) {
-                        Icon(Icons.Default.BookmarkBorder, contentDescription = "Saved Prompts")
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = (config?.activeModel ?: "ling-3.0").removePrefix("models/").take(10),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = null,
+                                modifier = Modifier.size(10.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
 
+                    // Pointer Overlay Toggle
+                    IconButton(
+                        onClick = {
+                            agentController.setPointerVisible(!pointerState.isVisible)
+                            Toast.makeText(
+                                context,
+                                if (!pointerState.isVisible) "Visual Cursor Enabled" else "Visual Cursor Disabled",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.testTag("toggle_pointer_button")
+                    ) {
+                        Icon(
+                            imageVector = if (pointerState.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = "Toggle Pointer Overlay",
+                            tint = if (pointerState.isVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // API Keys
                     IconButton(
                         onClick = { viewModel.navigateToScreen(BrowserScreen.API_KEYS) },
                         modifier = Modifier.testTag("agent_api_keys_button")
                     ) {
                         Icon(Icons.Default.Key, contentDescription = "API Keys")
                     }
+
+                    // Saved Prompts
+                    IconButton(
+                        onClick = { viewModel.navigateToScreen(BrowserScreen.SAVED_PROMPTS) },
+                        modifier = Modifier.testTag("agent_prompts_button")
+                    ) {
+                        Icon(Icons.Default.BookmarkBorder, contentDescription = "Saved Prompts")
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
+        },
+        bottomBar = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                // Quick Suggestion Chips
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    items(quickPrompts) { prompt ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.clickable {
+                                userInputText = prompt
+                            }
+                        ) {
+                            Text(
+                                text = prompt,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Telegram Input Box
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = userInputText,
+                        onValueChange = { userInputText = it },
+                        placeholder = {
+                            Text(
+                                "Ask AI Agent... e.g. Arijit Singh er latest song play koro",
+                                fontSize = 13.sp
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("agent_chat_input"),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.Transparent
+                        ),
+                        singleLine = false,
+                        maxLines = 3,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(
+                            onSend = {
+                                if (userInputText.isNotBlank()) {
+                                    val goal = userInputText
+                                    userInputText = ""
+                                    agentController.startNewTask(goal)
+                                }
+                            }
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    if (agentStatus == AgentStatus.RUNNING) {
+                        IconButton(
+                            onClick = { agentController.stopCurrentTask(pauseOnly = false) },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.errorContainer)
+                                .testTag("agent_stop_task_button")
+                        ) {
+                            Icon(
+                                Icons.Default.Stop,
+                                contentDescription = "Stop Task",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                if (userInputText.isNotBlank()) {
+                                    val goal = userInputText
+                                    userInputText = ""
+                                    agentController.startNewTask(goal)
+                                }
+                            },
+                            enabled = userInputText.isNotBlank(),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (userInputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .testTag("agent_send_button")
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send Goal",
+                                tint = if (userInputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
         }
     ) { padding ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .background(MaterialTheme.colorScheme.background)
         ) {
-            item {
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Hero Maintenance / Coming Soon Banner Card
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                    ),
+            if (dbMessages.isEmpty() && activityLogs.isEmpty() && agentStatus == AgentStatus.IDLE) {
+                // Telegram Welcome Screen
+                LazyColumn(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .border(
-                            width = 1.dp,
-                            brush = Brush.horizontalGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.tertiary
-                                )
-                            ),
-                            shape = RoundedCornerShape(20.dp)
-                        )
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        // Offline Badge
-                        Surface(
-                            color = Color(0xFFD32F2F).copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(20.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD32F2F))
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(
+                                    1.dp,
+                                    Brush.linearGradient(
+                                        listOf(
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)
+                                        )
+                                    ),
+                                    RoundedCornerShape(24.dp)
+                                )
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(60.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFFD32F2F))
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(34.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
                                 Text(
-                                    text = "AI SYSTEM OFFLINE • WORK IN PROGRESS",
-                                    fontSize = 10.sp,
+                                    text = "Naxxivo AI Browser Chatbot",
+                                    style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFD32F2F)
+                                    textAlign = TextAlign.Center
                                 )
-                            }
-                        }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
 
-                        Icon(
-                            Icons.Default.Build,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(42.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text(
-                            text = "AI System - Coming Soon!",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        Text(
-                            text = "কাজ চলছে... খুব শীঘ্রই আসছে!",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "আমাদের অটোনোমাস AI এজেন্ট সিস্টেমের আপগ্রেড ও ডেভেলপমেন্ট কাজ দ্রুত গতিতে চলছে। খুব শীঘ্রই একঝাঁক ধামাকা ফিচার নিয়ে আপনার সার্ভিসে হাজির হচ্ছে Next-Gen AI Browser Assistant!",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 18.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Notify Button
-                        Button(
-                            onClick = {
-                                isSubscribed = true
-                                Toast.makeText(
-                                    context,
-                                    "ধন্যবাদ! AI এজেন্ট চালু হওয়ার সাথে সাথেই নোটিফিকেশন পাবেন।",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isSubscribed) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.fillMaxWidth().testTag("notify_me_button")
-                        ) {
-                            Icon(
-                                Icons.Default.NotificationsActive,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (isSubscribed) "✓ আপনি নোটিফিকেশনে সাবস্ক্রাইবড" else "🔔 আপডেট জানতে সাবস্ক্রাইব করুন",
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "আসন্ন এক্সসাইটিং ফিচারসমূহ (Features)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            text = "ROADMAP",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-            }
-
-            // Feature List Items
-            items(upcomingFeatures) { feature ->
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = feature.icon,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
                                 Text(
-                                    text = feature.titleBangla,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    text = "Automated Human-Like Web Navigation, YouTube Control & Smart Result Comparison",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+
+                                Spacer(modifier = Modifier.height(18.dp))
+
                                 Surface(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(4.dp)
+                                    color = Color(0xFF2E7D32).copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E7D32))
                                 ) {
                                     Text(
-                                        text = feature.badge,
-                                        fontSize = 8.sp,
+                                        text = "⚡ Try: \"Arijit Singh er latest song play koro\"",
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        color = Color(0xFF2E7D32),
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            } else {
+                // Telegram Active Chat Stream
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // DB Chat Messages
+                    items(dbMessages) { msg ->
+                        TelegramMessageBubble(
+                            message = msg,
+                            onPlayVideo = { url ->
+                                viewModel.loadUrl(url)
+                                onBack()
+                            }
+                        )
+                    }
 
-                            Text(
-                                text = feature.title,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.secondary
+                    // Live Status Step Stream Card
+                    if (agentStatus == AgentStatus.RUNNING || activityLogs.isNotEmpty()) {
+                        item {
+                            TelegramLiveStatusCard(
+                                currentTaskGoal = currentTask?.goal ?: "Executing task...",
+                                logs = activityLogs,
+                                agentStatus = agentStatus,
+                                pointerText = pointerState.actionText
                             )
+                        }
+                    }
 
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            Text(
-                                text = feature.descriptionBangla,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    // Collected YouTube Video Results Card
+                    if (collectedVideos.isNotEmpty()) {
+                        item {
+                            YouTubeResultsCardList(
+                                videos = collectedVideos,
+                                onPlayVideo = { url ->
+                                    viewModel.loadUrl(url)
+                                    onBack()
+                                }
                             )
                         }
                     }
                 }
             }
 
-            item {
-                // Quick Action Buttons
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "প্রস্তুতি নিন (Quick Access)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            OutlinedButton(
-                                onClick = { viewModel.navigateToScreen(BrowserScreen.API_KEYS) },
-                                modifier = Modifier.weight(1f).testTag("setup_api_keys_btn")
+            // Sensitive Confirmation Modal
+            if (pendingConfirmation != null) {
+                val req = pendingConfirmation!!
+                AlertDialog(
+                    onDismissRequest = { agentController.rejectSensitiveAction() },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.SmartButton,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = req.actionName,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    },
+                    text = {
+                        Column {
+                            Text(
+                                text = req.warningMessage,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("API Key সেটিংস")
-                            }
-
-                            OutlinedButton(
-                                onClick = { viewModel.navigateToScreen(BrowserScreen.SAVED_PROMPTS) },
-                                modifier = Modifier.weight(1f).testTag("view_prompts_btn")
-                            ) {
-                                Icon(Icons.Default.BookmarkBorder, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("সেভড প্রম্পটস")
+                                Text(
+                                    text = req.actionDetails,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(8.dp)
+                                )
                             }
                         }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { agentController.approveSensitiveAction() },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Confirm & Execute")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { agentController.rejectSensitiveAction() }) {
+                            Text("Cancel")
+                        }
                     }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
+                )
             }
         }
     }
@@ -527,5 +585,387 @@ fun AgentScreen(
             },
             onDismiss = { showModelSelector = false }
         )
+    }
+}
+
+@Composable
+fun TelegramMessageBubble(
+    message: AgentMessageEntity,
+    onPlayVideo: (String) -> Unit
+) {
+    val isUser = message.role == "user"
+    val timeFormatted = remember(message.timestamp) {
+        val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
+        sdf.format(Date(message.timestamp))
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        if (!isUser) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+
+        Card(
+            shape = RoundedCornerShape(
+                topStart = 16.dp,
+                topEnd = 16.dp,
+                bottomStart = if (isUser) 16.dp else 4.dp,
+                bottomEnd = if (isUser) 4.dp else 16.dp
+            ),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier.fillMaxWidth(0.85f)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = timeFormatted,
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.align(Alignment.End)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TelegramLiveStatusCard(
+    currentTaskGoal: String,
+    logs: List<com.example.ai.AgentActivityItem>,
+    agentStatus: com.example.ai.AgentStatus,
+    pointerText: String
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                RoundedCornerShape(16.dp)
+            )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (agentStatus == com.example.ai.AgentStatus.RUNNING) MaterialTheme.colorScheme.primary else Color(0xFF2E7D32)
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "AGENT ACTION PROGRESS",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                if (agentStatus == com.example.ai.AgentStatus.RUNNING) {
+                    Text(
+                        text = "ACTIVE",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .background(
+                                MaterialTheme.colorScheme.primaryContainer,
+                                RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "Target Goal: $currentTaskGoal",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            if (pointerText.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "👉 Cursor: $pointerText",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Last 5 action step logs
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                logs.takeLast(5).forEach { log ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = when (log.type) {
+                                com.example.ai.ActivityType.SUCCESS -> Icons.Default.Check
+                                com.example.ai.ActivityType.ACT -> Icons.Default.PlayArrow
+                                else -> Icons.Default.AutoAwesome
+                            },
+                            contentDescription = null,
+                            tint = when (log.type) {
+                                com.example.ai.ActivityType.SUCCESS -> Color(0xFF2E7D32)
+                                com.example.ai.ActivityType.ERROR -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.primary
+                            },
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = log.message,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun YouTubeResultsCardList(
+    videos: List<com.example.ai.YouTubeVideoItem>,
+    onPlayVideo: (String) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "🎯 Extracted YouTube Results (${videos.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "RESULT MEMORY",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                videos.take(5).forEach { video ->
+                    YouTubeVideoCardItem(video = video, onPlayVideo = onPlayVideo)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun YouTubeVideoCardItem(
+    video: com.example.ai.YouTubeVideoItem,
+    onPlayVideo: (String) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                // Thumbnail
+                Box(
+                    modifier = Modifier
+                        .size(width = 90.dp, height = 60.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (video.thumbnail.isNotBlank()) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(video.thumbnail)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Video Thumbnail",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    if (video.duration.isNotBlank()) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.75f),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(4.dp)
+                        ) {
+                            Text(
+                                text = video.duration,
+                                color = Color.White,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Title & Info
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = video.title,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = video.channel,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (video.viewsFormatted.isNotBlank() || video.viewsRaw.isNotBlank()) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "👁️ ${if (video.viewsFormatted.isNotBlank()) video.viewsFormatted else video.viewsRaw}",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        if (video.uploadedRaw.isNotBlank()) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "📅 ${video.uploadedRaw}",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Play / Open Button
+            Button(
+                onClick = { onPlayVideo(video.url) },
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.fillMaxWidth().height(34.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "▶️ Play in Browser",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
     }
 }

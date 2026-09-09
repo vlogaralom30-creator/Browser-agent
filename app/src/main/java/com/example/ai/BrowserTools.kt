@@ -237,7 +237,113 @@ object BrowserTools {
             })
         })
 
-        // 14. request_sensitive_confirmation
+        // 14. go_home
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "go_home")
+            put("description", "Navigates the browser to the Home page or New Tab Page.")
+            put("parameters", JSONObject().apply { put("type", "OBJECT") })
+        })
+
+        // 15. open_new_tab
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "open_new_tab")
+            put("description", "Opens a new browser tab.")
+            put("parameters", JSONObject().apply {
+                put("type", "OBJECT")
+                put("properties", JSONObject().apply {
+                    put("url", JSONObject().apply {
+                        put("type", "STRING")
+                        put("description", "Optional initial URL to open in the new tab.")
+                    })
+                })
+            })
+        })
+
+        // 16. close_tab
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "close_tab")
+            put("description", "Closes the current active browser tab or specified tab ID.")
+            put("parameters", JSONObject().apply {
+                put("type", "OBJECT")
+                put("properties", JSONObject().apply {
+                    put("tabId", JSONObject().apply {
+                        put("type", "STRING")
+                        put("description", "Optional ID of the tab to close. Defaults to active tab.")
+                    })
+                })
+            })
+        })
+
+        // 17. switch_tab
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "switch_tab")
+            put("description", "Switches active tab in the browser by tab ID or index.")
+            put("parameters", JSONObject().apply {
+                put("type", "OBJECT")
+                put("properties", JSONObject().apply {
+                    put("tabId", JSONObject().apply {
+                        put("type", "STRING")
+                        put("description", "ID of the tab to switch to.")
+                    })
+                })
+                put("required", JSONArray().apply { put("tabId") })
+            })
+        })
+
+        // 18. toggle_bookmark
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "toggle_bookmark")
+            put("description", "Bookmarks or removes bookmark for the active webpage.")
+            put("parameters", JSONObject().apply { put("type", "OBJECT") })
+        })
+
+        // 19. share_page
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "share_page")
+            put("description", "Triggers the system share dialog for the current webpage URL.")
+            put("parameters", JSONObject().apply { put("type", "OBJECT") })
+        })
+
+        // 20. toggle_desktop_site
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "toggle_desktop_site")
+            put("description", "Toggles between Desktop View and Mobile View for the browser.")
+            put("parameters", JSONObject().apply { put("type", "OBJECT") })
+        })
+
+        // 21. find_in_page
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "find_in_page")
+            put("description", "Highlights and searches for a text query directly on the active webpage.")
+            put("parameters", JSONObject().apply {
+                put("type", "OBJECT")
+                put("properties", JSONObject().apply {
+                    put("query", JSONObject().apply {
+                        put("type", "STRING")
+                        put("description", "Text string to search for on the page.")
+                    })
+                })
+                put("required", JSONArray().apply { put("query") })
+            })
+        })
+
+        // 22. set_pointer_visibility
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "set_pointer_visibility")
+            put("description", "Shows or hides the visual action pointer / cursor overlay on the browser screen.")
+            put("parameters", JSONObject().apply {
+                put("type", "OBJECT")
+                put("properties", JSONObject().apply {
+                    put("visible", JSONObject().apply {
+                        put("type", "BOOLEAN")
+                        put("description", "True to show visual pointer cursor, False to hide.")
+                    })
+                })
+                put("required", JSONArray().apply { put("visible") })
+            })
+        })
+
+        // 23. request_sensitive_confirmation
         functionDeclarations.put(JSONObject().apply {
             put("name", "request_sensitive_confirmation")
             put("description", "Pauses execution and prompts the user for explicit confirmation before executing an irreversible or sensitive action (e.g. Delete, Publish, Post, Send, Payment).")
@@ -259,6 +365,13 @@ object BrowserTools {
                 })
                 put("required", JSONArray().apply { put("actionName"); put("actionDetails") })
             })
+        })
+
+        // 24. extract_youtube_results
+        functionDeclarations.put(JSONObject().apply {
+            put("name", "extract_youtube_results")
+            put("description", "Extracts structured YouTube video results (Title, Channel, Normalized Views, Upload Date, Video Link, Thumbnail, Duration) from the active YouTube page.")
+            put("parameters", JSONObject().apply { put("type", "OBJECT") })
         })
 
         // 15. finish_task

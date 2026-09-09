@@ -57,6 +57,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.example.ui.BrowserScreen
 import com.example.ui.BrowserViewModel
 import com.example.ui.agent.ActionConfirmationDialog
+import com.example.ui.agent.AgentPointerOverlay
 import com.example.ui.agent.AgentScreen
 import com.example.ui.agent.ApiKeyManagerScreen
 import com.example.ui.agent.SavedPromptsScreen
@@ -87,7 +88,9 @@ fun BrowserMainScreen(
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val pendingConfirmation by viewModel.agentController.pendingConfirmation.collectAsState()
+    val pendingConfirmation by viewModel.agentController.pendingConfirmation.collectAsStateWithLifecycle()
+    val pointerState by viewModel.agentController.pointerState.collectAsStateWithLifecycle()
+    val agentStatus by viewModel.agentController.agentStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showMenuSheet by remember { mutableStateOf(false) }
 
@@ -295,6 +298,14 @@ fun BrowserMainScreen(
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
+                        }
+
+                        // AI Agent Visual Action Pointer Overlay
+                        if (agentStatus == com.example.ai.AgentStatus.RUNNING || agentStatus == com.example.ai.AgentStatus.PAUSED) {
+                            AgentPointerOverlay(
+                                pointerState = pointerState,
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
 
                         // Floating Crawl Bot Live Overlay Badge

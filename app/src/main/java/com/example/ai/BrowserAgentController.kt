@@ -44,6 +44,29 @@ enum class AgentStatus {
     IDLE, RUNNING, PAUSED, WAITING_CONFIRMATION, COMPLETED, ERROR
 }
 
+data class AgentPointerState(
+    val isVisible: Boolean = true,
+    val xPercent: Float = 0.5f,
+    val yPercent: Float = 0.5f,
+    val actionText: String = "Observing page...",
+    val isClicking: Boolean = false,
+    val actionType: String = "OBSERVE"
+)
+
+data class YouTubeVideoItem(
+    val title: String,
+    val channel: String,
+    val viewsRaw: String = "",
+    val viewsNormalized: Long = 0L,
+    val viewsFormatted: String = "",
+    val uploadedRaw: String = "",
+    val recencyDays: Double = 9999.0,
+    val url: String = "",
+    val videoId: String = "",
+    val duration: String = "",
+    val thumbnail: String = ""
+)
+
 class BrowserAgentController(
     private val context: Context,
     private val agentRepository: AgentRepository,
@@ -65,8 +88,35 @@ class BrowserAgentController(
     private val _pendingConfirmation = MutableStateFlow<SensitiveConfirmationRequest?>(null)
     val pendingConfirmation: StateFlow<SensitiveConfirmationRequest?> = _pendingConfirmation.asStateFlow()
 
+    private val _pointerState = MutableStateFlow(AgentPointerState())
+    val pointerState: StateFlow<AgentPointerState> = _pointerState.asStateFlow()
+
+    private val _collectedVideoResults = MutableStateFlow<List<YouTubeVideoItem>>(emptyList())
+    val collectedVideoResults: StateFlow<List<YouTubeVideoItem>> = _collectedVideoResults.asStateFlow()
+
     private var executionJob: Job? = null
     private var isInterrupted = false
+
+    fun updatePointer(
+        xPercent: Float? = null,
+        yPercent: Float? = null,
+        actionText: String? = null,
+        isClicking: Boolean = false,
+        actionType: String? = null
+    ) {
+        val current = _pointerState.value
+        _pointerState.value = current.copy(
+            xPercent = xPercent ?: current.xPercent,
+            yPercent = yPercent ?: current.yPercent,
+            actionText = actionText ?: current.actionText,
+            isClicking = isClicking,
+            actionType = actionType ?: current.actionType
+        )
+    }
+
+    fun setPointerVisible(visible: Boolean) {
+        _pointerState.value = _pointerState.value.copy(isVisible = visible)
+    }
 
     fun addActivityLog(message: String, type: ActivityType = ActivityType.INFO, detail: String? = null) {
         val item = AgentActivityItem(message = message, type = type, detail = detail)
@@ -477,6 +527,7 @@ class BrowserAgentController(
         when (name) {
             "open_url" -> {
                 val url = args.getString("url")
+                updatePointer(xPercent = 0.5f, yPercent = 0.08f, actionText = "Navigating: ${url.take(25)}...", isClicking = true)
                 addActivityLog("Opening URL: $url", ActivityType.ACT)
                 actionExecutor.openUrl(url)
             }
@@ -484,31 +535,46 @@ class BrowserAgentController(
                 val selector = args.optString("selector").takeIf { it.isNotBlank() }
                 val textMatch = args.optString("textMatch").takeIf { it.isNotBlank() }
                 val xpath = args.optString("xpath").takeIf { it.isNotBlank() }
-                addActivityLog("Clicking element [${selector ?: textMatch ?: xpath}]", ActivityType.ACT)
-                actionExecutor.clickElement(selector, textMatch, xpath)
+                val targetDesc = selector ?: textMatch ?: xpath ?: "element"
+                updatePointer(actionText = "Clicking: ${targetDesc.take(20)}...", isClicking = true)
+                addActivityLog("Clicking element [$targetDesc]", ActivityType.ACT)
+                val res = actionExecutor.clickElement(selector, textMatch, xpath)
+                val xPct = res.data.optDouble("xPct", 0.5)
+                val yPct = res.data.optDouble("yPct", 0.5)
+                updatePointer(xPercent = xPct.toFloat(), yPercent = yPct.toFloat(), isClicking = false)
+                res
             }
             "type_text" -> {
                 val selector = args.getString("selector")
                 val text = args.getString("text")
                 val clear = args.optBoolean("clearFirst", true)
                 val enter = args.optBoolean("pressEnter", false)
+                updatePointer(actionText = "Typing: '${text.take(20)}...'", isClicking = true)
                 addActivityLog("Typing text into '$selector'", ActivityType.ACT)
-                actionExecutor.typeText(selector, text, clear, enter)
+                val res = actionExecutor.typeText(selector, text, clear, enter)
+                val xPct = res.data.optDouble("xPct", 0.5)
+                val yPct = res.data.optDouble("yPct", 0.3)
+                updatePointer(xPercent = xPct.toFloat(), yPercent = yPct.toFloat(), isClicking = false)
+                res
             }
             "scroll_page" -> {
                 val dir = args.getString("direction")
                 val amount = args.optInt("amount", 500)
+                val targetY = if (dir == "down") 0.75f else if (dir == "up") 0.25f else 0.5f
+                updatePointer(xPercent = 0.5f, yPercent = targetY, actionText = "Scrolling $dir...", isClicking = false)
                 addActivityLog("Scrolling page $dir ($amount px)", ActivityType.ACT)
                 actionExecutor.scrollPage(dir, amount)
             }
             "extract_page_content" -> {
                 val mode = args.optString("mode", "summary")
+                updatePointer(actionText = "Inspecting page structure...", isClicking = false)
                 addActivityLog("Reading and parsing webpage structure...", ActivityType.OBSERVE)
                 actionExecutor.extractPageContent(mode)
             }
             "extract_ai_prompts" -> {
                 val filter = args.optString("categoryFilter")
                 val max = args.optInt("maxCount", 30)
+                updatePointer(actionText = "Extracting AI prompts...", isClicking = false)
                 addActivityLog("Extracting AI prompts from page...", ActivityType.OBSERVE)
                 val res = actionExecutor.extractAiPrompts(filter, max)
                 
@@ -555,6 +621,7 @@ class BrowserAgentController(
                 }
             }
             "take_screenshot" -> {
+                updatePointer(actionText = "Capturing visual screenshot...", isClicking = false)
                 addActivityLog("Capturing visual screenshot for verification...", ActivityType.OBSERVE)
                 val bitmap = actionExecutor.captureScreenshot()
                 if (bitmap != null) {
@@ -571,20 +638,80 @@ class BrowserAgentController(
             "select_dropdown" -> {
                 val selector = args.getString("selector")
                 val value = args.getString("value")
+                updatePointer(actionText = "Selecting dropdown: $value", isClicking = true)
                 addActivityLog("Selecting '$value' in dropdown", ActivityType.ACT)
                 actionExecutor.selectDropdown(selector, value)
             }
             "go_back" -> {
+                updatePointer(xPercent = 0.1f, yPercent = 0.95f, actionText = "Browser: Back", isClicking = true)
                 viewModel.goBack()
                 ActionExecutionResult(isSuccess = true, summary = "Navigated Back")
             }
             "go_forward" -> {
+                updatePointer(xPercent = 0.2f, yPercent = 0.95f, actionText = "Browser: Forward", isClicking = true)
                 viewModel.goForward()
                 ActionExecutionResult(isSuccess = true, summary = "Navigated Forward")
             }
             "reload_page" -> {
+                updatePointer(xPercent = 0.8f, yPercent = 0.95f, actionText = "Browser: Reload", isClicking = true)
                 viewModel.reload()
                 ActionExecutionResult(isSuccess = true, summary = "Page Reloaded")
+            }
+            "go_home" -> {
+                updatePointer(xPercent = 0.08f, yPercent = 0.08f, actionText = "Browser: Home", isClicking = true)
+                viewModel.goHome()
+                ActionExecutionResult(isSuccess = true, summary = "Navigated to Home page")
+            }
+            "open_new_tab" -> {
+                updatePointer(xPercent = 0.5f, yPercent = 0.95f, actionText = "Browser: New Tab", isClicking = true)
+                val url = args.optString("url")
+                viewModel.openNewTab(url = url, isIncognito = viewModel.uiState.value.isIncognitoMode)
+                ActionExecutionResult(isSuccess = true, summary = "Opened new tab")
+            }
+            "close_tab" -> {
+                val tabId = args.optString("tabId").takeIf { it.isNotBlank() }
+                    ?: viewModel.uiState.value.activeTabId
+                viewModel.closeTab(tabId, isIncognito = viewModel.uiState.value.isIncognitoMode)
+                ActionExecutionResult(isSuccess = true, summary = "Closed tab $tabId")
+            }
+            "switch_tab" -> {
+                val tabId = args.getString("tabId")
+                viewModel.switchTab(tabId, isIncognito = viewModel.uiState.value.isIncognitoMode)
+                ActionExecutionResult(isSuccess = true, summary = "Switched to tab $tabId")
+            }
+            "toggle_bookmark" -> {
+                updatePointer(xPercent = 0.67f, yPercent = 0.95f, actionText = "Browser: Bookmark", isClicking = true)
+                viewModel.toggleBookmark(context)
+                ActionExecutionResult(isSuccess = true, summary = "Toggled bookmark for current page")
+            }
+            "share_page" -> {
+                updatePointer(xPercent = 0.92f, yPercent = 0.95f, actionText = "Browser: Share", isClicking = true)
+                val currentTab = viewModel.uiState.value.currentTab
+                val shareUrl = currentTab?.url ?: ""
+                if (shareUrl.isNotBlank()) {
+                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_SUBJECT, currentTab?.title ?: "")
+                        putExtra(android.content.Intent.EXTRA_TEXT, shareUrl)
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share link"))
+                }
+                ActionExecutionResult(isSuccess = true, summary = "Triggered share sheet for $shareUrl")
+            }
+            "toggle_desktop_site" -> {
+                viewModel.toggleDesktopMode()
+                ActionExecutionResult(isSuccess = true, summary = "Toggled Desktop Site mode")
+            }
+            "find_in_page" -> {
+                val query = args.getString("query")
+                viewModel.updateFindQuery(query)
+                ActionExecutionResult(isSuccess = true, summary = "Opened Find in Page for query '$query'")
+            }
+            "set_pointer_visibility" -> {
+                val visible = args.getBoolean("visible")
+                setPointerVisible(visible)
+                ActionExecutionResult(isSuccess = true, summary = "Set pointer visibility to $visible")
             }
             "save_memory" -> {
                 val key = args.getString("key")
@@ -594,8 +721,40 @@ class BrowserAgentController(
                 addActivityLog("Saved to persistent memory: $key", ActivityType.INFO)
                 ActionExecutionResult(isSuccess = true, summary = "Memory saved: $key = $value")
             }
+            "extract_youtube_results" -> {
+                updatePointer(actionText = "Extracting YouTube video metadata...", isClicking = false)
+                addActivityLog("Scraping YouTube video cards & view statistics...", ActivityType.OBSERVE)
+                val res = actionExecutor.extractYouTubeResults()
+                
+                val itemsArr = res.data.optJSONArray("items")
+                if (itemsArr != null && itemsArr.length() > 0) {
+                    val list = mutableListOf<YouTubeVideoItem>()
+                    for (i in 0 until itemsArr.length()) {
+                        val obj = itemsArr.getJSONObject(i)
+                        list.add(
+                            YouTubeVideoItem(
+                                title = obj.optString("title"),
+                                channel = obj.optString("channel"),
+                                viewsRaw = obj.optString("viewsRaw"),
+                                viewsNormalized = obj.optLong("viewsNormalized"),
+                                viewsFormatted = obj.optString("viewsFormatted"),
+                                uploadedRaw = obj.optString("uploadedRaw"),
+                                recencyDays = obj.optDouble("recencyDays", 9999.0),
+                                url = obj.optString("url"),
+                                videoId = obj.optString("videoId"),
+                                duration = obj.optString("duration"),
+                                thumbnail = obj.optString("thumbnail")
+                            )
+                        )
+                    }
+                    _collectedVideoResults.value = list
+                    addActivityLog("Collected ${list.size} structured YouTube videos in session memory.", ActivityType.SUCCESS)
+                }
+                res
+            }
             "finish_task" -> {
                 val summary = args.getString("summary")
+                updatePointer(actionText = "Task Completed ✓", isClicking = false)
                 addActivityLog("Task Summary: $summary", ActivityType.SUCCESS)
                 ActionExecutionResult(isSuccess = true, summary = summary)
             }
@@ -630,21 +789,60 @@ class BrowserAgentController(
 
     private fun buildSystemInstruction(memoryContext: String, permissionMode: String): String {
         return """
-            You are an autonomous AI Browser Agent operating inside an Android Web Browser.
-            You have direct browser-control capabilities via tools to navigate, read DOM structure, click buttons/links, type text into inputs, scroll pages, extract AI image prompts, save prompts to local database, and capture screenshots.
+            You are an autonomous, deeply intelligent AI Browser Agent operating an Android Web Browser like a real human user.
+            You possess advanced web navigation reasoning, semantic element understanding, tree-traversal memory mapping, and direct control over both browser UI controls and webpage elements.
 
-            AUTONOMOUS AGENT LOOP:
-            OBSERVE -> UNDERSTAND -> PLAN -> ACT -> VERIFY -> CONTINUE
+            ACTION LOOP (MANDATORY):
+            OBSERVE ➔ UNDERSTAND ➔ ACT ➔ VERIFY ➔ NEXT ACTION
+            - NEVER guess blindly.
+            - After every important action, inspect the current page again to verify whether the expected result occurred.
 
-            RULES & CAPABILITIES:
-            1. First inspect the page structure using 'extract_page_content' to find selectors, headings, and interactive elements.
-            2. To click an element, prefer CSS selector or exact text match.
-            3. To enter text, use 'type_text' with the CSS selector of the input/textarea.
-            4. If a page loads dynamic content or you scroll down, use 'scroll_page' and re-inspect.
-            5. If extracting prompts, use 'extract_ai_prompts' or 'save_prompt'.
-            6. If you encounter an error (e.g. element not found), observe the page again and try an alternative selector or text match.
-            7. For irreversible, destructive, delete, or publish actions, call 'request_sensitive_confirmation' so the user is prompted with an explicit Allow/Cancel dialog.
-            8. Once you have accomplished the user's objective, call 'finish_task' with a clear summary.
+            BROWSER UI vs WEBPAGE CONTROLS:
+            - BROWSER CONTROLS: Address bar, Back ('go_back'), Forward ('go_forward'), Reload ('reload_page'), Home ('go_home'), New Tab ('open_new_tab'), Close Tab ('close_tab'), Tab switching ('switch_tab'), Bookmark ('toggle_bookmark'), Share ('share_page'), Find in Page ('find_in_page'), Desktop site ('toggle_desktop_site').
+            - WEBPAGE CONTROLS: Search inputs, form fields, buttons, links, dropdowns, checkboxes, videos, menus, etc. Use the correct tool for each layer.
+
+            HUMAN-LIKE SEARCH PROTOCOL:
+            Do NOT depend on manually guessing search URLs. Prefer interacting through the page:
+            1. Inspect current webpage with 'extract_page_content'.
+            2. Find the real search input element.
+            3. Focus/click the search input.
+            4. Type the query using 'type_text' ('clearFirst = true', 'pressEnter = true').
+            5. Submit using Enter or the actual search button/icon.
+            6. Wait for page update and inspect search results.
+            7. Fallback to direct 'open_url' navigation ONLY if no search box exists or on home tab.
+
+            YOUTUBE AUTOMATION & RESULT SELECTION PROTOCOL:
+            When tasked to find, play, or list YouTube content (e.g., "Arijit Singh er latest song play koro"):
+            1. Open YouTube (`https://www.youtube.com` or `https://m.youtube.com`).
+            2. Find the YouTube search box, focus it, type query, press enter.
+            3. Call 'extract_youtube_results' to extract structured metadata (Title, Channel, Normalized Views, Upload Date, Link, Thumbnail).
+            4. If more items are required or target is not visible, call 'scroll_page("down", 600)', then 'extract_youtube_results' again.
+            5. ANALYZE & COMPARE METADATA:
+               - **LATEST** = Smallest recency value (newest upload date e.g. "2 days ago" vs "2 years ago").
+               - **POPULAR / MOST VIEWS** = Highest normalized view count (e.g. 2,500,000 views > 50,000 views).
+               - NEVER confuse LATEST with POPULAR!
+            6. Select the exact best match based on user request.
+            7. Open/play the video (`open_url` or `click_element`).
+            8. Conclude with 'finish_task' providing Title, Channel, Views, Upload date, and direct Link.
+
+            RESULT MEMORY & FOLLOW-UP QUESTIONS:
+            - Keep track of collected items in session memory.
+            - Answer follow-up queries (e.g., "ওই 10টার মধ্যে latest কোনটা?", "সবচেয়ে popular কোনটা?") directly from memory without repeating searches unnecessarily.
+            - NEVER hallucinate unobserved view counts, dates, titles, or URLs.
+
+            CLICKING & ELEMENT SELECTION:
+            Before clicking, identify the element's visible text, aria-label, title, role, href, position, and surrounding context.
+            Choose elements based strictly on relevance to the goal.
+
+            ACTIVE SCROLLING:
+            Use 'scroll_page' ('down', 'up', 'top', 'bottom') to reveal hidden elements or load lazy search results. Inspect after scrolling.
+
+            FAILURE RECOVERY PROTOCOL:
+            If an action fails: inspect page again -> try alternative selector -> scroll -> backtrack ('go_back') if stuck.
+
+            SENSITIVE ACTION PROTECTION:
+            Playing or opening public web content does NOT require confirmation.
+            Require confirmation ('request_sensitive_confirmation') only before sensitive or permanent actions: Upload, Delete, Publish, Send, Purchase, Account changes.
 
             $memoryContext
         """.trimIndent()

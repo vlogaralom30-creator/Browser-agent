@@ -145,6 +145,10 @@ class BrowserActionExecutor(
 
         val script = """
             var el = document.querySelector('$escapedSelector');
+            if (!el) {
+                // Smart fallback locators for search inputs
+                el = document.querySelector('input[type="search"], input[name="q"], input[name="k"], input[name="search"], input[name="query"], #search-input, #search, input[placeholder*="search" i]');
+            }
             if (el) {
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 el.focus();
@@ -166,7 +170,11 @@ class BrowserActionExecutor(
                     el.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
                     el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
                     if (el.form) {
+                        try { el.form.submit(); } catch(e){}
                         el.form.dispatchEvent(new Event('submit', { bubbles: true }));
+                    } else {
+                        var btn = document.querySelector('button[type="submit"], input[type="submit"], #search-btn, button.search-button, button[aria-label*="search" i]');
+                        if (btn) btn.click();
                     }
                 }
                 return JSON.stringify({ success: true, typed: '$escapedText' });
@@ -209,27 +217,51 @@ class BrowserActionExecutor(
             var title = document.title || '';
             var url = window.location.href || '';
             
-            // Extract Interactive elements (buttons, inputs, links)
+            // Extract Interactive elements (buttons, inputs, links, icons)
             var interactives = [];
-            var buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"], [role="button"], a');
-            for (var i = 0; i < Math.min(buttons.length, 35); i++) {
+            var buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"], [role="button"], a, [role="tab"], [role="menuitem"], svg, i');
+            for (var i = 0; i < Math.min(buttons.length, 45); i++) {
                 var b = buttons[i];
-                var t = (b.innerText || b.value || b.getAttribute('aria-label') || '').trim();
+                var t = (b.innerText || b.value || b.getAttribute('aria-label') || b.getAttribute('title') || b.getAttribute('alt') || '').trim();
                 var id = b.id ? '#' + b.id : '';
                 var cls = b.className && typeof b.className === 'string' ? '.' + b.className.split(' ').slice(0, 2).join('.') : '';
-                if (t.length > 0 && t.length < 80) {
-                    interactives.push({ tag: b.tagName.toLowerCase(), selector: (id || cls || b.tagName.toLowerCase()), text: t });
+                var href = b.getAttribute ? b.getAttribute('href') : '';
+                if (t.length > 0 && t.length < 100) {
+                    interactives.push({ tag: b.tagName.toLowerCase(), selector: (id || cls || b.tagName.toLowerCase()), text: t, href: href });
                 }
             }
 
             // Extract Input fields
             var inputs = [];
             var inputEls = document.querySelectorAll('input:not([type="hidden"]), textarea, select');
-            for (var j = 0; j < Math.min(inputEls.length, 15); j++) {
+            for (var j = 0; j < Math.min(inputEls.length, 20); j++) {
                 var inp = inputEls[j];
                 var name = inp.name || inp.id || inp.placeholder || inp.getAttribute('aria-label') || '';
                 var sel = inp.id ? '#' + inp.id : (inp.name ? 'input[name="' + inp.name + '"]' : inp.tagName.toLowerCase());
                 inputs.push({ selector: sel, type: inp.type || 'text', placeholder: inp.placeholder || '', currentVal: inp.value || '' });
+            }
+
+            // Extract Menu Branches / Settings Tabs (Tree Structure)
+            var menuTreeOptions = [];
+            var navItems = document.querySelectorAll('nav a, nav button, [role="navigation"] a, [role="menu"] [role="menuitem"], .settings-menu a, .settings-list a, .tab-list button, ul.menu > li');
+            for (var m = 0; m < Math.min(navItems.length, 25); m++) {
+                var itemText = (navItems[m].innerText || navItems[m].getAttribute('aria-label') || '').trim();
+                if (itemText.length > 0 && itemText.length < 60) {
+                    menuTreeOptions.push(itemText);
+                }
+            }
+
+            // Extract Search Result Cards (if on Google/Search results page)
+            var searchResults = [];
+            var resBlocks = document.querySelectorAll('.g, .MjjYud, div[data-sokoban-container], article, .search-result');
+            for (var s = 0; s < Math.min(resBlocks.length, 8); s++) {
+                var card = resBlocks[s];
+                var cardTitle = card.querySelector('h3, h2, a')?.innerText?.trim() || '';
+                var cardLink = card.querySelector('a')?.getAttribute('href') || '';
+                var cardSnippet = card.innerText?.replace(/\s+/g, ' ')?.substring(0, 150) || '';
+                if (cardTitle) {
+                    searchResults.push({ title: cardTitle, url: cardLink, snippet: cardSnippet });
+                }
             }
 
             // Extract Headings & Visible Body Text
@@ -243,6 +275,8 @@ class BrowserActionExecutor(
                 interactiveCount: buttons.length,
                 interactives: interactives,
                 inputs: inputs,
+                menuTreeOptions: menuTreeOptions,
+                searchResults: searchResults,
                 bodyTextSample: bodySample
             });
         """.trimIndent()
@@ -370,5 +404,125 @@ class BrowserActionExecutor(
             isSuccess = rawResult.contains("\"success\":true"),
             summary = "Selected option '$value' in $selector"
         )
+    }
+
+    suspend fun extractYouTubeResults(): ActionExecutionResult = withContext(Dispatchers.Main) {
+        val script = """
+            (function() {
+                function parseViews(text) {
+                    if (!text) return { raw: '', num: 0, formatted: '0 views' };
+                    var clean = text.replace(/,/g, '').trim();
+                    var match = clean.match(/([\d\.]+)\s*([KMBkmb])?/);
+                    var num = 0;
+                    if (match) {
+                        var val = parseFloat(match[1]);
+                        var unit = (match[2] || '').toUpperCase();
+                        if (unit === 'K') num = Math.round(val * 1000);
+                        else if (unit === 'M') num = Math.round(val * 1000000);
+                        else if (unit === 'B') num = Math.round(val * 1000000000);
+                        else num = Math.round(val);
+                    }
+                    var formatted = num > 0 ? num.toLocaleString('en-US') + ' views' : (text || '0 views');
+                    return { raw: text, num: num, formatted: formatted };
+                }
+
+                function parseRecencyDays(text) {
+                    if (!text) return 9999;
+                    var lower = text.toLowerCase();
+                    var match = lower.match(/(\d+)\s*(second|minute|hour|day|week|month|year)/);
+                    if (!match) return 9999;
+                    var n = parseInt(match[1]) || 1;
+                    var unit = match[2];
+                    if (unit.startsWith('second') || unit.startsWith('minute')) return 0.01;
+                    if (unit.startsWith('hour')) return 0.1;
+                    if (unit.startsWith('day')) return n;
+                    if (unit.startsWith('week')) return n * 7;
+                    if (unit.startsWith('month')) return n * 30;
+                    if (unit.startsWith('year')) return n * 365;
+                    return 9999;
+                }
+
+                var items = [];
+                var selectors = [
+                    'ytd-video-renderer', 'ytm-video-with-context-renderer', 
+                    'ytm-compact-video-renderer', 'ytd-rich-item-renderer', 'ytd-grid-video-renderer'
+                ];
+                var renderers = document.querySelectorAll(selectors.join(', '));
+
+                if (renderers.length === 0) {
+                    renderers = document.querySelectorAll('a[href*="/watch?v="]');
+                }
+
+                var seenUrls = new Set();
+
+                for (var i = 0; i < renderers.length; i++) {
+                    var el = renderers[i];
+                    var titleEl = el.querySelector('#video-title, a#video-title, .ytm-compact-video-renderer-title, h3, h4, span[aria-label]') || el;
+                    var title = (titleEl.innerText || titleEl.getAttribute('title') || titleEl.getAttribute('aria-label') || '').trim();
+                    if (!title || title.length < 2) continue;
+
+                    var linkEl = el.querySelector('a[href*="/watch?v="]') || (el.tagName === 'A' ? el : null);
+                    var href = linkEl ? linkEl.getAttribute('href') : '';
+                    if (!href) continue;
+                    var fullUrl = href.startsWith('http') ? href : ('https://www.youtube.com' + href);
+
+                    if (seenUrls.has(fullUrl)) continue;
+                    seenUrls.add(fullUrl);
+
+                    var videoIdMatch = fullUrl.match(/[?&]v=([^&]+)/);
+                    var videoId = videoIdMatch ? videoIdMatch[1] : '';
+                    var thumbUrl = videoId ? ('https://i.ytimg.com/vi/' + videoId + '/hqdefault.jpg') : '';
+
+                    var channelEl = el.querySelector('#channel-name, .ytd-channel-name, #byline, .ytm-badge-and-byline-item, .subhead') || null;
+                    var channel = channelEl ? channelEl.innerText.trim() : 'YouTube Channel';
+
+                    var metaText = el.innerText || '';
+                    var viewMatch = metaText.match(/([\d\.]+[KMBkmb]?)\s*views/i) || metaText.match(/([\d\.,]+)\s*views/i);
+                    var rawViews = viewMatch ? viewMatch[0] : '';
+                    var viewsObj = parseViews(rawViews);
+
+                    var dateMatch = metaText.match(/(\d+\s*(second|minute|hour|day|week|month|year)s?\s*ago)/i);
+                    var rawDate = dateMatch ? dateMatch[1] : 'Recent';
+                    var recencyDays = parseRecencyDays(rawDate);
+
+                    var durationEl = el.querySelector('span.ytd-thumbnail-overlay-time-status-renderer, .badge-shape-wiz__text, .video-time') || null;
+                    var duration = durationEl ? durationEl.innerText.trim() : '';
+
+                    items.push({
+                        title: title,
+                        channel: channel,
+                        viewsRaw: viewsObj.raw,
+                        viewsNormalized: viewsObj.num,
+                        viewsFormatted: viewsObj.formatted,
+                        uploadedRaw: rawDate,
+                        recencyDays: recencyDays,
+                        url: fullUrl,
+                        videoId: videoId,
+                        duration: duration,
+                        thumbnail: thumbUrl
+                    });
+
+                    if (items.length >= 20) break;
+                }
+
+                return JSON.stringify({
+                    count: items.length,
+                    pageTitle: document.title,
+                    items: items
+                });
+            })();
+        """.trimIndent()
+
+        val rawResult = executeJavaScript(script)
+        try {
+            val json = JSONObject(rawResult)
+            ActionExecutionResult(
+                isSuccess = true,
+                summary = "Extracted ${json.optInt("count", 0)} YouTube video search results.",
+                data = json
+            )
+        } catch (e: Exception) {
+            ActionExecutionResult(isSuccess = false, summary = "Error parsing YouTube results: $rawResult")
+        }
     }
 }
