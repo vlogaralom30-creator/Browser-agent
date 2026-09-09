@@ -248,52 +248,99 @@ fun NewTabPage(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Shortcuts Grid Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Shortcuts",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = secondaryTextColor
-                )
-
-                TextButton(
-                    onClick = { showAddDialog = true }
+            if (isIncognito) {
+                // Informative Privacy Architecture Card (No shortcuts leaked from normal browsing)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = IncognitoSurface
+                    )
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add shortcut",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = "Add", fontSize = 13.sp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp)
+                    ) {
+                        Text(
+                            text = "Private Session Protection",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = IncognitoPrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "• Visited URLs never appear in your device's normal browsing history.",
+                            fontSize = 13.sp,
+                            color = Color(0xFFC4C7C5),
+                            lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "• Private session data, if saved, is stored locally in hardware-encrypted storage (Android KeyStore).",
+                            fontSize = 13.sp,
+                            color = Color(0xFFC4C7C5),
+                            lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "• Realism Note: Private browsing keeps your activity hidden on this device, but does not provide complete internet anonymity or bypass network-level ISP/firewall restrictions.",
+                            fontSize = 12.sp,
+                            color = IncognitoAccent.copy(alpha = 0.8f),
+                            lineHeight = 17.sp
+                        )
+                    }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // FlowRow of shortcuts
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                maxItemsInEachRow = 4
-            ) {
-                allShortcuts.forEach { shortcut ->
-                    ShortcutTile(
-                        item = shortcut,
-                        isIncognito = isIncognito,
-                        onClick = { onOpenUrl(shortcut.url) },
-                        onDelete = if (shortcut.isCustom) {
-                            { onDeleteCustomShortcut(shortcut.id) }
-                        } else null
+            } else {
+                // Shortcuts Grid Header (Normal Mode Only)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Shortcuts",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = secondaryTextColor
                     )
+
+                    TextButton(
+                        onClick = { showAddDialog = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add shortcut",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = "Add", fontSize = 13.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // FlowRow of shortcuts
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    maxItemsInEachRow = 4
+                ) {
+                    allShortcuts.forEach { shortcut ->
+                        ShortcutTile(
+                            item = shortcut,
+                            isIncognito = isIncognito,
+                            onClick = { onOpenUrl(shortcut.url) },
+                            onDelete = if (shortcut.isCustom) {
+                                { onDeleteCustomShortcut(shortcut.id) }
+                            } else null
+                        )
+                    }
                 }
             }
 

@@ -54,10 +54,12 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,8 +82,13 @@ fun Omnibox(
     onSecurityInfoClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var textInput by remember(tab?.url) {
-        mutableStateOf(if (tab?.isNewTab == true) "" else tab?.url ?: "")
+    var textFieldValue by remember(tab?.url) {
+        val initial = when {
+            tab?.isNewTab == true -> ""
+            tab?.url?.startsWith("browser://search") == true -> tab.displayUrl
+            else -> tab?.url ?: ""
+        }
+        mutableStateOf(TextFieldValue(text = initial))
     }
     var isFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -89,7 +96,13 @@ fun Omnibox(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     val isSecure = remember(tab?.url) { UrlUtils.isSecure(tab?.url ?: "") }
-    val displayHost = remember(tab?.url) { UrlUtils.getDisplayHost(tab?.url ?: "") }
+    val displayHost = remember(tab?.url, tab?.displayUrl) {
+        if (tab?.url?.startsWith("browser://search") == true) {
+            "Search: ${tab.displayUrl}"
+        } else {
+            UrlUtils.getDisplayHost(tab?.url ?: "")
+        }
+    }
 
     val barBackground = if (isIncognito) IncognitoSurface else MaterialTheme.colorScheme.surface
     val inputBackground = if (isIncognito) IncognitoSurfaceVariant else MaterialTheme.colorScheme.surfaceVariant
@@ -198,15 +211,19 @@ fun Omnibox(
                         }
 
                         BasicTextField(
-                            value = textInput,
-                            onValueChange = { textInput = it },
+                            value = textFieldValue,
+                            onValueChange = { textFieldValue = it },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(focusRequester)
                                 .onFocusChanged { focusState ->
                                     isFocused = focusState.isFocused
-                                    if (focusState.isFocused && tab?.url?.isNotBlank() == true && tab.url != "about:blank") {
-                                        textInput = tab.url
+                                    if (focusState.isFocused) {
+                                        val currentUrl = if (tab?.isNewTab == true || tab?.url == "about:blank") "" else tab?.url ?: ""
+                                        textFieldValue = TextFieldValue(
+                                            text = currentUrl,
+                                            selection = TextRange(0, currentUrl.length)
+                                        )
                                     }
                                 }
                                 .testTag("omnibox_text_field"),
@@ -225,8 +242,8 @@ fun Omnibox(
                                 onGo = {
                                     focusManager.clearFocus()
                                     keyboardController?.hide()
-                                    if (textInput.isNotBlank()) {
-                                        onSubmitUrl(textInput)
+                                    if (textFieldValue.text.isNotBlank()) {
+                                        onSubmitUrl(textFieldValue.text)
                                     }
                                 }
                             )
@@ -234,9 +251,9 @@ fun Omnibox(
                     }
 
                     // Clear button when focused and not empty
-                    if (isFocused && textInput.isNotBlank()) {
+                    if (isFocused && textFieldValue.text.isNotBlank()) {
                         IconButton(
-                            onClick = { textInput = "" },
+                            onClick = { textFieldValue = TextFieldValue("") },
                             modifier = Modifier.size(28.dp)
                         ) {
                             Icon(

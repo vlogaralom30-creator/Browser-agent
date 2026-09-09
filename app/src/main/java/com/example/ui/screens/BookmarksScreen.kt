@@ -30,8 +30,10 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -76,6 +79,7 @@ fun BookmarksScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var editingBookmark by remember { mutableStateOf<BookmarkEntity?>(null) }
     val context = LocalContext.current
 
     val filteredBookmarks = remember(bookmarks, searchQuery) {
@@ -213,6 +217,9 @@ fun BookmarksScreen(
                             viewModel.loadUrl(bookmark.url)
                             viewModel.navigateToScreen(BrowserScreen.BROWSER)
                         },
+                        onEdit = {
+                            editingBookmark = bookmark
+                        },
                         onDelete = {
                             CoroutineScope(Dispatchers.Main).launch {
                                 viewModel.repository.deleteBookmark(bookmark)
@@ -232,12 +239,66 @@ fun BookmarksScreen(
             }
         }
     }
+
+    // Edit Bookmark Dialog
+    editingBookmark?.let { bm ->
+        var editTitle by remember(bm) { mutableStateOf(bm.title) }
+        var editUrl by remember(bm) { mutableStateOf(bm.url) }
+
+        AlertDialog(
+            onDismissRequest = { editingBookmark = null },
+            title = { Text("Edit Bookmark") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = editTitle,
+                        onValueChange = { editTitle = it },
+                        label = { Text("Title") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editUrl,
+                        onValueChange = { editUrl = it },
+                        label = { Text("URL") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (editUrl.isNotBlank()) {
+                            CoroutineScope(Dispatchers.Main).launch {
+                                viewModel.repository.updateBookmark(
+                                    bm.copy(
+                                        title = editTitle.ifBlank { editUrl },
+                                        url = editUrl
+                                    )
+                                )
+                            }
+                        }
+                        editingBookmark = null
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingBookmark = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 private fun BookmarkListItem(
     bookmark: BookmarkEntity,
     onOpen: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     onCopy: () -> Unit,
     modifier: Modifier = Modifier
@@ -283,6 +344,15 @@ private fun BookmarkListItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        IconButton(onClick = onEdit) {
+            Icon(
+                imageVector = Icons.Default.Edit,
+                contentDescription = "Edit bookmark",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
             )
         }
 

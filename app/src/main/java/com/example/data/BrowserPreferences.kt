@@ -55,6 +55,14 @@ class BrowserPreferences(context: Context) {
         get() = prefs.getString(KEY_CUSTOM_SHORTCUTS, "") ?: ""
         set(value) = prefs.edit().putString(KEY_CUSTOM_SHORTCUTS, value).apply()
 
+    var savedTabsJson: String
+        get() = prefs.getString(KEY_SAVED_TABS, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_SAVED_TABS, value).apply()
+
+    var isSmartPrivateProtectionEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SMART_PRIVATE_PROTECTION_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_SMART_PRIVATE_PROTECTION_ENABLED, value).apply()
+
     companion object {
         private const val KEY_SEARCH_ENGINE = "key_search_engine"
         private const val KEY_THEME_MODE = "key_theme_mode"
@@ -63,5 +71,7 @@ class BrowserPreferences(context: Context) {
         private const val KEY_JAVASCRIPT_ENABLED = "key_javascript_enabled"
         private const val KEY_DO_NOT_TRACK = "key_do_not_track"
         private const val KEY_CUSTOM_SHORTCUTS = "key_custom_shortcuts"
+        private const val KEY_SAVED_TABS = "key_saved_tabs"
+        private const val KEY_SMART_PRIVATE_PROTECTION_ENABLED = "key_smart_private_protection_enabled"
     }
 }

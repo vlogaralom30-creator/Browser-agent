@@ -28,9 +28,15 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -207,47 +213,227 @@ fun TabSwitcherScreen(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Close all tabs") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteSweep,
-                                        contentDescription = null
+                            if (isIncognito) {
+                                if (state.hasPrivatePin) {
+                                    DropdownMenuItem(
+                                        text = { Text("Lock Private Session") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Lock,
+                                                contentDescription = null
+                                            )
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            viewModel.lockPrivateSession()
+                                        }
                                     )
-                                },
-                                onClick = {
-                                    showMenu = false
-                                    viewModel.closeAllTabs(isIncognito)
+                                    DropdownMenuItem(
+                                        text = { Text("Remove PIN Protection") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.LockOpen,
+                                                contentDescription = null
+                                            )
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            viewModel.removePrivatePin()
+                                        }
+                                    )
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text("Set Private Session PIN") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Lock,
+                                                contentDescription = null
+                                            )
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            viewModel.promptSetupPrivatePin()
+                                        }
+                                    )
                                 }
-                            )
+
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(if (state.isPrivateResumeEnabled) "Resume Session: ON" else "Resume Session: OFF")
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Security,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.togglePrivateResume(!state.isPrivateResumeEnabled)
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text("Close Private Session") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteSweep,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.closeAllTabs(true)
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text("Clear Private Browsing Data") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.showClearPrivateDataDialog(true)
+                                    }
+                                )
+                            } else {
+                                if (state.canReopenClosedTab) {
+                                    DropdownMenuItem(
+                                        text = { Text("Reopen closed tab") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Restore,
+                                                contentDescription = null
+                                            )
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            viewModel.reopenRecentlyClosedTab()
+                                        }
+                                    )
+                                }
+
+                                DropdownMenuItem(
+                                    text = { Text("Close all tabs") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteSweep,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.closeAllTabs(false)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Tab Grid
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .weight(1f)
-        ) {
-            items(currentTabs, key = { it.id }) { tab ->
-                TabCard(
-                    tab = tab,
-                    isActive = tab.id == activeTabId,
-                    isIncognito = isIncognito,
-                    onSelect = {
-                        viewModel.switchTab(tab.id, isIncognito)
-                    },
-                    onClose = {
-                        viewModel.closeTab(tab.id, isIncognito)
+        // Content Area: Either Locked State or Tab Grid
+        if (isIncognito && state.isPrivateSessionLocked) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f)
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = IncognitoSurface)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = IncognitoSurfaceVariant,
+                            modifier = Modifier.size(72.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Locked",
+                                    tint = IncognitoPrimary,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "Private Session Locked",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Enter your PIN to decrypt and access your private tabs.",
+                            fontSize = 13.sp,
+                            color = IncognitoAccent,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Button(
+                            onClick = { viewModel.promptUnlockPrivateSession() },
+                            colors = ButtonDefaults.buttonColors(containerColor = IncognitoPrimary),
+                            modifier = Modifier.testTag("unlock_private_session_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LockOpen,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Unlock Session", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
                     }
-                )
+                }
+            }
+        } else {
+            // Tab Grid
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f)
+            ) {
+                items(currentTabs, key = { it.id }) { tab ->
+                    TabCard(
+                        tab = tab,
+                        isActive = tab.id == activeTabId,
+                        isIncognito = isIncognito,
+                        onSelect = {
+                            viewModel.switchTab(tab.id, isIncognito)
+                        },
+                        onClose = {
+                            viewModel.closeTab(tab.id, isIncognito)
+                        }
+                    )
+                }
             }
         }
     }

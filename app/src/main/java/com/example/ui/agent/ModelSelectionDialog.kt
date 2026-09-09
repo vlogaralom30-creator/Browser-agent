@@ -195,8 +195,10 @@ fun ModelSelectionDialog(
                     ) {
                         items(filteredModels) { modelInfo ->
                             val isSelected = currentModel == modelInfo.name || currentModel.removePrefix("models/") == modelInfo.name
-                            val isTopModel = modelInfo.name == "openrouter/free" ||
-                                modelInfo.name == "google/gemini-1.5-flash:free" ||
+                            val isTopModel = modelInfo.name == "inclusionai/ling-3.0-flash-sante:free" ||
+                                modelInfo.name == "inclusionai/ling-3.0-flash:free" ||
+                                modelInfo.name == "openrouter/free" ||
+                                modelInfo.name == "google/gemini-2.0-flash-lite-001:free" ||
                                 modelInfo.name == "meta-llama/llama-3.3-70b-instruct:free" ||
                                 modelInfo.name == "deepseek/deepseek-r1:free" ||
                                 modelInfo.name == "llama-3.1-8b-instant" ||

@@ -183,38 +183,73 @@ fun HistoryScreen(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Websites you visit will be listed here.",
+                        text = "Websites you visit in standard browsing mode will appear here. Private tabs are never tracked or saved to history.",
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
             }
         } else {
+            val groupedHistory = remember(filteredHistory) {
+                filteredHistory.groupBy { formatHistoryGroupHeader(it.visitTime) }
+            }
+
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                items(filteredHistory, key = { it.id }) { item ->
-                    HistoryListItem(
-                        item = item,
-                        onOpen = {
-                            viewModel.loadUrl(item.url)
-                            viewModel.navigateToScreen(BrowserScreen.BROWSER)
-                        },
-                        onDelete = {
-                            CoroutineScope(Dispatchers.Main).launch {
-                                viewModel.repository.deleteHistory(item)
-                            }
+                groupedHistory.forEach { (dateHeader, items) ->
+                    item(key = "header_$dateHeader") {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = dateHeader,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
                         }
-                    )
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                        thickness = 0.5.dp
-                    )
+                    }
+                    items(items, key = { it.id }) { item ->
+                        HistoryListItem(
+                            item = item,
+                            onOpen = {
+                                viewModel.loadUrl(item.url)
+                                viewModel.navigateToScreen(BrowserScreen.BROWSER)
+                            },
+                            onDelete = {
+                                CoroutineScope(Dispatchers.Main).launch {
+                                    viewModel.repository.deleteHistory(item)
+                                }
+                            }
+                        )
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                            thickness = 0.5.dp
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+private fun formatHistoryGroupHeader(timestamp: Long): String {
+    val now = java.util.Calendar.getInstance()
+    val itemTime = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+    return when {
+        now.get(java.util.Calendar.YEAR) == itemTime.get(java.util.Calendar.YEAR) &&
+        now.get(java.util.Calendar.DAY_OF_YEAR) == itemTime.get(java.util.Calendar.DAY_OF_YEAR) -> "Today"
+        now.get(java.util.Calendar.YEAR) == itemTime.get(java.util.Calendar.YEAR) &&
+        now.get(java.util.Calendar.DAY_OF_YEAR) - itemTime.get(java.util.Calendar.DAY_OF_YEAR) == 1 -> "Yesterday"
+        now.get(java.util.Calendar.YEAR) == itemTime.get(java.util.Calendar.YEAR) &&
+        now.get(java.util.Calendar.WEEK_OF_YEAR) == itemTime.get(java.util.Calendar.WEEK_OF_YEAR) -> "Earlier this week"
+        else -> java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
     }
 }
 

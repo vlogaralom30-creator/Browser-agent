@@ -1,5 +1,6 @@
 package com.example.data
 
+import com.example.model.BrowserTab
 import com.example.model.SearchEngine
 import com.example.model.ShortcutItem
 import kotlinx.coroutines.flow.Flow
@@ -42,6 +43,10 @@ class BrowserRepository(
 
     suspend fun deleteBookmark(bookmark: BookmarkEntity) {
         bookmarkDao.deleteBookmark(bookmark)
+    }
+
+    suspend fun updateBookmark(bookmark: BookmarkEntity) {
+        bookmarkDao.updateBookmark(bookmark)
     }
 
     suspend fun clearAllBookmarks() {
@@ -129,6 +134,12 @@ class BrowserRepository(
             preferences.isDoNotTrackEnabled = value
         }
 
+    var isSmartPrivateProtectionEnabled: Boolean
+        get() = preferences.isSmartPrivateProtectionEnabled
+        set(value) {
+            preferences.isSmartPrivateProtectionEnabled = value
+        }
+
     // Custom shortcuts
     fun getCustomShortcuts(): List<ShortcutItem> {
         val json = preferences.customShortcutsJson
@@ -186,5 +197,49 @@ class BrowserRepository(
             array.put(obj)
         }
         preferences.customShortcutsJson = array.toString()
+    }
+
+    // Normal Tabs persistence
+    fun saveNormalTabs(tabs: List<BrowserTab>) {
+        try {
+            val array = JSONArray()
+            tabs.filterNot { it.isIncognito }.forEach { tab ->
+                val obj = JSONObject().apply {
+                    put("id", tab.id)
+                    put("url", tab.url)
+                    put("title", tab.title)
+                    put("isDesktopMode", tab.isDesktopMode)
+                }
+                array.put(obj)
+            }
+            preferences.savedTabsJson = array.toString()
+        } catch (e: Exception) {
+            // Ignore persistence errors
+        }
+    }
+
+    fun loadSavedNormalTabs(): List<BrowserTab> {
+        val json = preferences.savedTabsJson
+        if (json.isBlank()) return emptyList()
+        return try {
+            val array = JSONArray(json)
+            val list = mutableListOf<BrowserTab>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    BrowserTab(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        url = obj.optString("url", ""),
+                        title = obj.optString("title", "New Tab"),
+                        displayUrl = obj.optString("url", ""),
+                        isDesktopMode = obj.optBoolean("isDesktopMode", false),
+                        isIncognito = false
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }

@@ -14,6 +14,13 @@ data class BrowserTab(
     val isIncognito: Boolean = false,
     val isDesktopMode: Boolean = false,
     val isBookmarked: Boolean = false,
+    val errorDescription: String? = null,
+    val errorCode: Int = 0,
+    val isSslError: Boolean = false,
+    val failedUrl: String? = null,
+    val errorCategory: PageErrorCategory? = null,
+    val videoPlaybackSeconds: Float? = null,
+    val renderRevision: Int = 0,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val isNewTab: Boolean

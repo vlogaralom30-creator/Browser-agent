@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -231,6 +232,21 @@ fun SettingsScreen(
             )
 
             SettingsCategoryHeader("Privacy & Security")
+
+            SettingsSwitchItem(
+                icon = Icons.Default.Security,
+                title = "Smart Private Protection",
+                subtitle = "Automatically open sensitive and adult sites in encrypted Private Mode",
+                checked = state.isSmartPrivateProtectionEnabled,
+                onCheckedChange = { viewModel.setSmartPrivateProtectionEnabled(it) }
+            )
+
+            SettingsClickableItem(
+                icon = Icons.Default.Shield,
+                title = "Protected Site Domains",
+                subtitle = "${state.smartPrivateDomains.size} domains configured • Tap to customize",
+                onClick = { viewModel.showSmartPrivateDomainsDialog(true) }
+            )
 
             SettingsClickableItem(
                 icon = Icons.Default.DeleteSweep,

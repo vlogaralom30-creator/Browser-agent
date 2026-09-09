@@ -32,7 +32,7 @@ class AgentRepository(context: Context) {
             configDao.insertOrUpdateConfig(
                 AgentConfigEntity(
                     id = 1,
-                    activeModel = "gemini-2.0-flash",
+                    activeModel = "inclusionai/ling-3.0-flash-sante:free",
                     permissionMode = "FULL_ACCESS",
                     isAutoFailoverEnabled = true,
                     isVisionEnabled = true,
@@ -40,26 +40,19 @@ class AgentRepository(context: Context) {
                 )
             )
         } else if (config.activeModel.contains("gemini-2.5-flash") || config.activeModel == "google/gemini-2.0-flash-exp:free" || config.activeModel == "llama-3.3-70b-versatile") {
-            configDao.insertOrUpdateConfig(config.copy(activeModel = "gemini-2.0-flash"))
+            configDao.insertOrUpdateConfig(config.copy(activeModel = "inclusionai/ling-3.0-flash-sante:free"))
         }
 
-        // Reset status for any keys that were rate limited or marked error due to obsolete model
+        // Ensure all default / preset API keys are completely deleted
         val allKeys = apiKeyDao.getAllApiKeysList()
-        for (key in allKeys) {
-            if (key.lastError?.contains("gemini-2.5-flash", ignoreCase = true) == true ||
-                key.lastError?.contains("gemini-2.0-flash-exp", ignoreCase = true) == true ||
-                key.lastError?.contains("llama-3.3-70b-versatile", ignoreCase = true) == true ||
-                key.lastError?.contains("no longer available", ignoreCase = true) == true
-            ) {
-                apiKeyDao.updateApiKey(
-                    key.copy(
-                        status = "ACTIVE",
-                        failCount = 0,
-                        lastError = null
-                    )
-                )
-            }
+        val defaultKeyFound = allKeys.any { it.apiKey.contains("sk-or-v1-566aa8da") || it.label.contains("OpenRouter Ling") }
+        if (defaultKeyFound) {
+            apiKeyDao.deleteAllApiKeys()
         }
+    }
+
+    suspend fun deleteAllApiKeys() {
+        apiKeyDao.deleteAllApiKeys()
     }
 
     suspend fun addApiKey(apiKey: String, label: String = "Gemini Key", isEnabled: Boolean = true): Long {

@@ -234,6 +234,7 @@ class GeminiApiClient(
         temperature: Float
     ): GeminiResponse {
         val isGroq = apiKeyEntity.provider == "GROQ" || apiKeyEntity.apiKey.startsWith("gsk_") || apiKeyEntity.baseUrl.contains("groq.com")
+        val isOpenRouter = apiKeyEntity.provider == "OPENROUTER" || apiKeyEntity.apiKey.startsWith("sk-or-") || apiKeyEntity.baseUrl.contains("openrouter")
 
         val endpoint = if (apiKeyEntity.baseUrl.isNotBlank()) {
             val base = apiKeyEntity.baseUrl.trimEnd('/')
@@ -249,14 +250,12 @@ class GeminiApiClient(
             if (targetModel.contains("gemini") || targetModel.isBlank() || targetModel == "gpt-4o-mini" || targetModel == "llama-3.3-70b-versatile") {
                 targetModel = "llama-3.1-8b-instant"
             }
-        } else if (targetModel.contains("gemini-2.5-flash")) {
-            targetModel = if (apiKeyEntity.provider == "OPENROUTER" || apiKeyEntity.apiKey.startsWith("sk-or-")) {
-                "google/gemini-1.5-flash:free"
-            } else {
-                "gemini-2.0-flash"
+        } else if (isOpenRouter || apiKeyEntity.provider == "OPENROUTER" || apiKeyEntity.apiKey.startsWith("sk-or-")) {
+            if (targetModel == "google/gemini-1.5-flash:free" || targetModel == "google/gemini-2.0-flash-exp:free" || targetModel.contains("gemini-2.5-flash")) {
+                targetModel = "inclusionai/ling-3.0-flash-sante:free"
             }
-        } else if (targetModel == "google/gemini-2.0-flash-exp:free") {
-            targetModel = "google/gemini-1.5-flash:free"
+        } else if (targetModel.contains("gemini-2.5-flash")) {
+            targetModel = "gemini-2.0-flash"
         }
 
         val messages = JSONArray()
@@ -400,14 +399,14 @@ class GeminiApiClient(
                     "https://openrouter.ai/api/v1/chat/completions"
                 }
 
-                val testModel = if (model.contains("/") || (isGroq && !model.contains("gemini"))) {
-                    if (model == "llama-3.3-70b-versatile") "llama-3.1-8b-instant"
-                    else if (model == "google/gemini-2.0-flash-exp:free") "google/gemini-1.5-flash:free"
-                    else model
+                val testModel = if (isOpenRouter || provider == "OPENROUTER" || trimmedKey.startsWith("sk-or-")) {
+                    if (model == "google/gemini-1.5-flash:free" || model == "google/gemini-2.0-flash-exp:free" || model.isBlank() || !model.contains("/")) {
+                        "inclusionai/ling-3.0-flash-sante:free"
+                    } else {
+                        model
+                    }
                 } else if (isGroq) {
                     "llama-3.1-8b-instant"
-                } else if (isOpenRouter) {
-                    "google/gemini-1.5-flash:free"
                 } else {
                     "gpt-4o-mini"
                 }
@@ -520,8 +519,9 @@ class GeminiApiClient(
         )
 
         val defaultOpenRouterModels = listOf(
+            GeminiModelInfo("inclusionai/ling-3.0-flash-sante:free", "Ling 3.0 Flash Sante (Free) [PRIMARY]", "Inclusion AI fast multimodal reasoning model on OpenRouter.", listOf("generateContent")),
+            GeminiModelInfo("inclusionai/ling-3.0-flash:free", "Ling 3.0 Flash (Free)", "Inclusion AI Ling 3.0 Flash free tier model.", listOf("generateContent")),
             GeminiModelInfo("openrouter/free", "Free Models Auto Router [BEST FREE]", "Automatically routes prompts to the best active free model on OpenRouter.", listOf("generateContent")),
-            GeminiModelInfo("google/gemini-1.5-flash:free", "Gemini 1.5 Flash (OpenRouter Free)", "Google's 1.5 Flash via OpenRouter Free Tier.", listOf("generateContent")),
             GeminiModelInfo("google/gemini-2.0-flash-lite-001:free", "Gemini 2.0 Flash Lite (OpenRouter Free)", "Google's 2.0 Flash Lite via OpenRouter Free Tier.", listOf("generateContent")),
             GeminiModelInfo("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B Instruct (Free)", "Meta 70B open weights model via OpenRouter Free Tier.", listOf("generateContent")),
             GeminiModelInfo("deepseek/deepseek-r1:free", "DeepSeek R1 Reasoning (Free)", "DeepSeek premier reasoning model via OpenRouter Free Tier.", listOf("generateContent")),

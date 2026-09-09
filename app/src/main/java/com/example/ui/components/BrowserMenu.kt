@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -34,9 +35,12 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +54,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -76,6 +82,7 @@ fun BrowserMenu(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -136,7 +143,7 @@ fun BrowserMenu(
 
                     IconButton(
                         onClick = {
-                            viewModel.toggleBookmark()
+                            viewModel.toggleBookmark(context)
                         },
                         enabled = tab?.isNewTab == false && tab.url.isNotBlank()
                     ) {
@@ -211,6 +218,18 @@ fun BrowserMenu(
                     viewModel.openNewTab(isIncognito = true)
                 }
             )
+
+            // Restore Recently Closed Tab
+            if (uiState.canReopenClosedTab) {
+                MenuItem(
+                    icon = Icons.Default.Restore,
+                    title = "Reopen Closed Tab",
+                    onClick = {
+                        onDismiss()
+                        viewModel.reopenRecentlyClosedTab()
+                    }
+                )
+            }
 
             HorizontalDivider(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -288,6 +307,28 @@ fun BrowserMenu(
                 }
             )
 
+            // Download Page for Offline Reading (.mhtml)
+            MenuItem(
+                icon = Icons.Default.Download,
+                title = "Download Page (Save Offline)",
+                enabled = tab?.isNewTab == false && tab.url.isNotBlank(),
+                onClick = {
+                    onDismiss()
+                    viewModel.downloadCurrentPage(context)
+                }
+            )
+
+            // Copy All Text from Page
+            MenuItem(
+                icon = Icons.Default.ContentCopy,
+                title = "Copy All Page Text",
+                enabled = tab?.isNewTab == false && tab.url.isNotBlank(),
+                onClick = {
+                    onDismiss()
+                    viewModel.copyAllPageText(context)
+                }
+            )
+
             // Find in page
             MenuItem(
                 icon = Icons.Default.FindInPage,
@@ -299,6 +340,16 @@ fun BrowserMenu(
                 }
             )
 
+            // Website Crawler Bot
+            MenuItem(
+                icon = Icons.Default.SmartToy,
+                title = "Website Crawler Bot",
+                onClick = {
+                    onDismiss()
+                    viewModel.showCrawlBotSheet(true)
+                }
+            )
+
             // Desktop site toggle
             Row(
                 modifier = Modifier
@@ -306,26 +357,32 @@ fun BrowserMenu(
                     .clickable {
                         viewModel.toggleDesktopMode()
                     }
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .testTag("menu_desktop_site"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.Computer,
                         contentDescription = null,
+                        tint = if (tab?.isDesktopMode == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
                         text = "Desktop Site",
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 Checkbox(
                     checked = tab?.isDesktopMode == true,
-                    onCheckedChange = { viewModel.toggleDesktopMode() }
+                    onCheckedChange = null
                 )
             }
 
@@ -334,15 +391,55 @@ fun BrowserMenu(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
             )
 
-            // Clear browsing data
-            MenuItem(
-                icon = Icons.Default.DeleteSweep,
-                title = "Clear Browsing Data...",
-                onClick = {
-                    onDismiss()
-                    viewModel.showClearDataDialog(true)
+            // Clear browsing data / Private browsing controls
+            if (isIncognito) {
+                if (uiState.hasPrivatePin) {
+                    MenuItem(
+                        icon = Icons.Default.Lock,
+                        title = "Lock Private Session",
+                        onClick = {
+                            onDismiss()
+                            viewModel.lockPrivateSession()
+                        }
+                    )
+                } else {
+                    MenuItem(
+                        icon = Icons.Default.Lock,
+                        title = "Set Private Session PIN",
+                        onClick = {
+                            onDismiss()
+                            viewModel.promptSetupPrivatePin()
+                        }
+                    )
                 }
-            )
+
+                MenuItem(
+                    icon = Icons.Default.Close,
+                    title = "Clear Private Browsing Data",
+                    onClick = {
+                        onDismiss()
+                        viewModel.showClearPrivateDataDialog(true)
+                    }
+                )
+
+                MenuItem(
+                    icon = Icons.Default.DeleteSweep,
+                    title = "Close Private Session",
+                    onClick = {
+                        onDismiss()
+                        viewModel.closeAllTabs(true)
+                    }
+                )
+            } else {
+                MenuItem(
+                    icon = Icons.Default.DeleteSweep,
+                    title = "Clear Browsing Data...",
+                    onClick = {
+                        onDismiss()
+                        viewModel.showClearDataDialog(true)
+                    }
+                )
+            }
 
             // Settings
             MenuItem(

@@ -37,6 +37,9 @@ interface ApiKeyDao {
     @Query("DELETE FROM api_keys WHERE id = :id")
     suspend fun deleteApiKeyById(id: Long)
 
+    @Query("DELETE FROM api_keys")
+    suspend fun deleteAllApiKeys()
+
     @Query("SELECT COUNT(*) FROM api_keys")
     suspend fun getApiKeysCount(): Int
 }

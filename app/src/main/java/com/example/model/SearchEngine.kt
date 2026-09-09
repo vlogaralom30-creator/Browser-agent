@@ -5,6 +5,11 @@ enum class SearchEngine(
     val searchUrlPrefix: String,
     val homeUrl: String
 ) {
+    NAXXIVO(
+        displayName = "Naxxivo Search (Native)",
+        searchUrlPrefix = "browser://search?q=",
+        homeUrl = "browser://newtab"
+    ),
     GOOGLE(
         displayName = "Google",
         searchUrlPrefix = "https://www.google.com/search?q=",
@@ -28,7 +33,7 @@ enum class SearchEngine(
 
     companion object {
         fun fromName(name: String): SearchEngine {
-            return entries.find { it.name.equals(name, ignoreCase = true) } ?: GOOGLE
+            return entries.find { it.name.equals(name, ignoreCase = true) } ?: NAXXIVO
         }
     }
 }

@@ -61,4 +61,43 @@ object UrlUtils {
     fun isSecure(url: String): Boolean {
         return url.startsWith("https://", ignoreCase = true)
     }
+
+    /**
+     * Extracts canonical host: lowercase, trimmed, without scheme, www, port, or path.
+     */
+    fun extractCanonicalHost(urlOrInput: String): String {
+        val trimmed = urlOrInput.trim().lowercase()
+        if (trimmed.isEmpty() || trimmed.startsWith("about:") || trimmed.startsWith("javascript:")) {
+            return ""
+        }
+        val withoutScheme = when {
+            trimmed.startsWith("https://") -> trimmed.substring(8)
+            trimmed.startsWith("http://") -> trimmed.substring(7)
+            else -> trimmed
+        }
+        val pathIdx = withoutScheme.indexOfAny(charArrayOf('/', '?', '#'))
+        val hostAndPort = if (pathIdx != -1) withoutScheme.substring(0, pathIdx) else withoutScheme
+        val portIdx = hostAndPort.indexOf(':')
+        var host = if (portIdx != -1) hostAndPort.substring(0, portIdx) else hostAndPort
+        if (host.startsWith("www.")) {
+            host = host.substring(4)
+        }
+        return host.trim()
+    }
+
+    /**
+     * Checks whether the given URL/input matches any domain in the private domains set.
+     * Matches exact host (e.g. example.com) or subdomains (e.g. m.example.com, video.example.com).
+     */
+    fun matchesPrivateDomain(urlOrHost: String, privateDomains: Set<String>): Boolean {
+        if (privateDomains.isEmpty()) return false
+        val host = extractCanonicalHost(urlOrHost)
+        if (host.isBlank()) return false
+
+        return privateDomains.any { configuredDomain ->
+            val clean = extractCanonicalHost(configuredDomain)
+            if (clean.isBlank()) false
+            else host == clean || host.endsWith(".$clean")
+        }
+    }
 }

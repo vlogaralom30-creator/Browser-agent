@@ -85,6 +85,7 @@ fun ApiKeyManagerScreen(
     var selectedProvider by remember { mutableStateOf("GEMINI") } // "GEMINI", "OPENROUTER", "OPENAI"
     var customBaseUrl by remember { mutableStateOf("") }
     var keyToDelete by remember { mutableStateOf<ApiKeyEntity?>(null) }
+    var showDeleteAllDialog by remember { mutableStateOf(false) }
 
     // Map of key ID to testing status: null = idle, "TESTING" = in progress, or result string
     val testStatusMap = remember { mutableStateMapOf<Long, String>() }
@@ -112,6 +113,20 @@ fun ApiKeyManagerScreen(
                         modifier = Modifier.testTag("api_keys_back_button")
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (apiKeys.isNotEmpty()) {
+                        IconButton(
+                            onClick = { showDeleteAllDialog = true },
+                            modifier = Modifier.testTag("delete_all_keys_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete All Keys",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -350,6 +365,34 @@ fun ApiKeyManagerScreen(
             },
             dismissButton = {
                 TextButton(onClick = { keyToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Delete All Confirmation Dialog
+    if (showDeleteAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAllDialog = false },
+            title = { Text("Delete All API Keys") },
+            text = { Text("Are you sure you want to permanently delete ALL saved API keys?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            agentRepository.deleteAllApiKeys()
+                            showDeleteAllDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("confirm_delete_all_keys_button")
+                ) {
+                    Text("Delete All Keys")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllDialog = false }) {
                     Text("Cancel")
                 }
             }

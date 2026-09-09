@@ -10,7 +10,7 @@ enum class AiProvider(
     val defaultModel: String
 ) {
     GEMINI("Google Gemini", "gemini-1.5-flash"),
-    OPENROUTER("OpenRouter", "google/gemini-1.5-flash:free"),
+    OPENROUTER("OpenRouter", "inclusionai/ling-3.0-flash-sante:free"),
     GROQ("Groq", "llama-3.1-8b-instant"),
     OPENAI("OpenAI", "gpt-4o-mini"),
     CUSTOM("Custom", "gpt-4o-mini");
@@ -38,8 +38,8 @@ data class ApiKeyConfig(
     fun getActiveModel(): String {
         val model = customModel?.ifBlank { null } ?: provider.defaultModel
         return when {
-            model.contains("gemini-2.5-flash") -> "gemini-1.5-flash"
-            model == "google/gemini-2.0-flash-exp:free" -> "google/gemini-1.5-flash:free"
+            model.contains("gemini-2.5-flash") -> if (provider == AiProvider.OPENROUTER) "inclusionai/ling-3.0-flash-sante:free" else "gemini-1.5-flash"
+            model == "google/gemini-2.0-flash-exp:free" || model == "google/gemini-1.5-flash:free" -> "inclusionai/ling-3.0-flash-sante:free"
             model == "llama-3.3-70b-versatile" -> "llama-3.1-8b-instant"
             else -> model
         }
