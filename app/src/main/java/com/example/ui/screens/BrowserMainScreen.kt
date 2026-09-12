@@ -56,11 +56,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.ui.BrowserScreen
 import com.example.ui.BrowserViewModel
-import com.example.ui.agent.ActionConfirmationDialog
-import com.example.ui.agent.AgentPointerOverlay
-import com.example.ui.agent.AgentScreen
-import com.example.ui.agent.ApiKeyManagerScreen
-import com.example.ui.agent.SavedPromptsScreen
 import com.example.ui.components.BottomNavBar
 import com.example.ui.components.BrowserContextMenuSheet
 import com.example.ui.components.BrowserMenu
@@ -88,9 +83,6 @@ fun BrowserMainScreen(
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val pendingConfirmation by viewModel.agentController.pendingConfirmation.collectAsStateWithLifecycle()
-    val pointerState by viewModel.agentController.pointerState.collectAsStateWithLifecycle()
-    val agentStatus by viewModel.agentController.agentStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showMenuSheet by remember { mutableStateOf(false) }
 
@@ -300,14 +292,6 @@ fun BrowserMainScreen(
                             }
                         }
 
-                        // AI Agent Visual Action Pointer Overlay
-                        if (agentStatus == com.example.ai.AgentStatus.RUNNING || agentStatus == com.example.ai.AgentStatus.PAUSED) {
-                            AgentPointerOverlay(
-                                pointerState = pointerState,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-
                         // Floating Crawl Bot Live Overlay Badge
                         CrawlBotOverlayBadge(
                             botState = state.crawlBotState,
@@ -329,7 +313,6 @@ fun BrowserMainScreen(
                         onBackClick = { viewModel.goBack() },
                         onForwardClick = { viewModel.goForward() },
                         onNewTabClick = { viewModel.openNewTab(isIncognito = isIncognito) },
-                        onAgentClick = { viewModel.navigateToScreen(BrowserScreen.AI_AGENT) },
                         onBookmarkClick = { viewModel.toggleBookmark(context) },
                         onReloadClick = { viewModel.reload() },
                         onShareClick = {
@@ -370,27 +353,6 @@ fun BrowserMainScreen(
                 SettingsScreen(
                     state = state,
                     viewModel = viewModel
-                )
-            }
-
-            BrowserScreen.AI_AGENT -> {
-                AgentScreen(
-                    viewModel = viewModel,
-                    onBack = { viewModel.navigateToScreen(BrowserScreen.BROWSER) }
-                )
-            }
-
-            BrowserScreen.SAVED_PROMPTS -> {
-                SavedPromptsScreen(
-                    agentRepository = viewModel.agentRepository,
-                    onBack = { viewModel.navigateToScreen(BrowserScreen.AI_AGENT) }
-                )
-            }
-
-            BrowserScreen.API_KEYS -> {
-                ApiKeyManagerScreen(
-                    agentRepository = viewModel.agentRepository,
-                    onBack = { viewModel.navigateToScreen(BrowserScreen.AI_AGENT) }
                 )
             }
         }
@@ -541,14 +503,7 @@ fun BrowserMainScreen(
         }
     }
 
-    // Top-Level Sensitive Confirmation Dialog
-    pendingConfirmation?.let { req ->
-        ActionConfirmationDialog(
-            request = req,
-            onAllow = { viewModel.agentController.approveSensitiveAction() },
-            onCancel = { viewModel.agentController.rejectSensitiveAction() }
-        )
-    }
+
 
     // Context Menu Bottom Sheet
     state.contextMenuData?.let { data ->
@@ -591,7 +546,11 @@ fun BrowserMainScreen(
             onStopCrawl = { viewModel.stopCrawlBot() },
             onResetBot = { viewModel.resetCrawlBot() },
             onOpenUrl = { url -> viewModel.loadUrl(url) },
-            onDismiss = { viewModel.showCrawlBotSheet(false) }
+            onDismiss = { viewModel.showCrawlBotSheet(false) },
+            onStartYtBot = { query, criteria, like, comment, commentText ->
+                viewModel.startYoutubeBot(query, criteria, like, comment, commentText)
+            },
+            onClearYtHistory = { viewModel.clearYoutubeHistory(context) }
         )
     }
 

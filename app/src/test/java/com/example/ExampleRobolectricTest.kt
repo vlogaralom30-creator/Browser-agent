@@ -2,12 +2,11 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.example.ai.BrowserTools
-import com.example.data.agent.AgentRepository
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import com.example.model.CrawlBotState
+import com.example.model.CrawlBotStatus
+import com.example.model.YoutubeInteractionItem
+import com.example.util.SiteCrawlerEngine
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,59 +26,42 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `test browser tools declarations exist and are valid`() {
-        val toolsArray = BrowserTools.getGeminiToolsDeclaration()
-        assertNotNull(toolsArray)
-        val declarations = toolsArray.getJSONObject(0).getJSONArray("functionDeclarations")
-        assertTrue(declarations.length() > 5)
-
-        val toolNames = mutableListOf<String>()
-        for (i in 0 until declarations.length()) {
-            val decl = declarations.getJSONObject(i)
-            toolNames.add(decl.getString("name"))
-        }
-
-        assertTrue(toolNames.contains("open_url"))
-        assertTrue(toolNames.contains("click_element"))
-        assertTrue(toolNames.contains("type_text"))
-        assertTrue(toolNames.contains("scroll_page"))
-        assertTrue(toolNames.contains("extract_page_content"))
-        assertTrue(toolNames.contains("extract_ai_prompts"))
-        assertTrue(toolNames.contains("save_prompt"))
-        assertTrue(toolNames.contains("request_sensitive_confirmation"))
+    fun `test youtube bot state initialization`() {
+        val state = CrawlBotState()
+        assertEquals("youtube", state.botMode)
+        assertEquals(CrawlBotStatus.IDLE, state.status)
+        assertEquals("", state.ytSearchQuery)
+        assertTrue(state.ytHistory.isEmpty())
+        assertTrue(state.ytSessionLogs.isEmpty())
     }
 
     @Test
-    fun `test agent repository initialization and failover sorting`() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val repo = AgentRepository(context)
+    fun `test youtube history item creation`() {
+        val item = YoutubeInteractionItem(
+            query = "retro synthwave",
+            videoTitle = "Lofi Beats to Code/Relax",
+            videoUrl = "https://youtube.com/watch?v=123",
+            viewCountText = "2.5M views",
+            timestamp = System.currentTimeMillis(),
+            isLiked = true,
+            isCommented = true,
+            commentText = "Absolute masterpiece!"
+        )
 
-        repo.initializeDefaultsIfEmpty()
+        assertEquals("retro synthwave", item.query)
+        assertEquals("Lofi Beats to Code/Relax", item.videoTitle)
+        assertEquals("https://youtube.com/watch?v=123", item.videoUrl)
+        assertEquals("2.5M views", item.viewCountText)
+        assertTrue(item.isLiked)
+        assertTrue(item.isCommented)
+        assertEquals("Absolute masterpiece!", item.commentText)
+    }
 
-        val keys = repo.apiKeyDao.getEnabledApiKeys()
-        assertTrue("Expected enabled keys in pool", keys.isNotEmpty())
-
-        // Test masked key representation
-        val firstKey = keys.first()
-        val masked = firstKey.getMaskedKey()
-        assertFalse(masked.contains(firstKey.apiKey))
-        assertTrue(masked.contains("..."))
-
-        // Test prompt saving & deduplication
-        val prompt1 = "A cinematic shot of a neon cyberpunk skyline at dusk"
-        val saved1 = repo.savePrompt(prompt1, "Cinematic", sourceWebsite = "TestSite")
-        assertTrue(saved1)
-
-        val savedDuplicate = repo.savePrompt(prompt1, "Cinematic", sourceWebsite = "TestSite")
-        assertFalse(savedDuplicate)
-
-        val prompts = repo.allPrompts.first()
-        assertTrue(prompts.any { it.prompt == prompt1 })
-
-        // Test memory context formatting
-        repo.saveMemory("channel_name", "AI Studio Demo", "YOUTUBE")
-        val memContext = repo.getFormattedMemoryContext()
-        assertTrue(memContext.contains("channel_name"))
-        assertTrue(memContext.contains("AI Studio Demo"))
+    @Test
+    fun `test site crawler engine instance`() {
+        val engine = SiteCrawlerEngine()
+        val state = engine.botState.value
+        assertNotNull(state)
+        assertEquals(CrawlBotStatus.IDLE, state.status)
     }
 }

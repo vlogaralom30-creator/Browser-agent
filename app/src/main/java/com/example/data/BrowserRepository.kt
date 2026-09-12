@@ -140,6 +140,18 @@ class BrowserRepository(
             preferences.isSmartPrivateProtectionEnabled = value
         }
 
+    var isAdBlockEnabled: Boolean
+        get() = preferences.isAdBlockEnabled
+        set(value) {
+            preferences.isAdBlockEnabled = value
+        }
+
+    var adBlockWhitelistedDomains: Set<String>
+        get() = preferences.adBlockWhitelistedDomains
+        set(value) {
+            preferences.adBlockWhitelistedDomains = value
+        }
+
     // Custom shortcuts
     fun getCustomShortcuts(): List<ShortcutItem> {
         val json = preferences.customShortcutsJson

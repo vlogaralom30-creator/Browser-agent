@@ -21,6 +21,7 @@ data class BrowserTab(
     val errorCategory: PageErrorCategory? = null,
     val videoPlaybackSeconds: Float? = null,
     val renderRevision: Int = 0,
+    val blockedAdsCount: Int = 0,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val isNewTab: Boolean

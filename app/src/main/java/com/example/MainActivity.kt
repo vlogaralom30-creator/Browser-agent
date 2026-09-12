@@ -54,4 +54,16 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_MODERATE) {
+            try {
+                // Clear all web storage and caches on low-memory triggers to prevent OutOfMemory force-closes
+                android.webkit.WebStorage.getInstance().deleteAllData()
+            } catch (e: Exception) {
+                // safe graceful ignore
+            }
+        }
+    }
 }

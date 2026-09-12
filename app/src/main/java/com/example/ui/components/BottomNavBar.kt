@@ -51,7 +51,6 @@ fun BottomNavBar(
     onBackClick: () -> Unit,
     onForwardClick: () -> Unit,
     onNewTabClick: () -> Unit,
-    onAgentClick: () -> Unit = {},
     onBookmarkClick: () -> Unit,
     onReloadClick: () -> Unit,
     onShareClick: () -> Unit,

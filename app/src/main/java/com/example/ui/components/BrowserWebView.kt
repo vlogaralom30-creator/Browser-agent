@@ -17,23 +17,50 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.model.BrowserTab
 import com.example.model.ContextMenuData
 import com.example.model.WebPermissionRequest
 import com.example.ui.BrowserViewModel
+import com.example.util.AdBlockEngine
 import com.example.util.DownloadHandler
 import com.example.util.UserAgentHelper
 
@@ -61,62 +88,93 @@ fun BrowserWebView(
         filePathCallback = null
     }
 
-    // Retain and configure WebView per tab ID and render revision
+    // Retain and configure WebView per tab ID and render revision with safety fallbacks
+    var webViewInitError by remember(tab.id, tab.renderRevision) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val webView = remember(tab.id, tab.renderRevision) {
-        WebView(context).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
+        try {
+            WebView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
 
-            // Let system handle layer rendering without forcing redundant buffer queues
-            setLayerType(View.LAYER_TYPE_NONE, null)
+                // Let system handle layer rendering without forcing redundant buffer queues
+                setLayerType(View.LAYER_TYPE_NONE, null)
 
-            settings.apply {
-                javaScriptEnabled = isJavaScriptEnabled
-                domStorageEnabled = true
-                databaseEnabled = true
-                useWideViewPort = true
-                loadWithOverviewMode = true
-                setSupportZoom(true)
-                builtInZoomControls = true
-                displayZoomControls = false
-                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                allowFileAccess = true
-                allowContentAccess = true
-                mediaPlaybackRequiresUserGesture = true
-                setSupportMultipleWindows(false)
-                javaScriptCanOpenWindowsAutomatically = true
-                setGeolocationEnabled(true)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    safeBrowsingEnabled = false
+                settings.apply {
+                    javaScriptEnabled = isJavaScriptEnabled
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    setSupportZoom(true)
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                    allowFileAccess = true
+                    allowContentAccess = true
+                    mediaPlaybackRequiresUserGesture = true
+                    setSupportMultipleWindows(false)
+                    javaScriptCanOpenWindowsAutomatically = true
+                    setGeolocationEnabled(true)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        safeBrowsingEnabled = false
+                    }
                 }
-            }
 
-            // Apply standard desktop Chrome or mobile User-Agent
-            UserAgentHelper.switchUserAgent(this, tab.isDesktopMode)
+                // Apply standard desktop Chrome or mobile User-Agent
+                UserAgentHelper.switchUserAgent(this, tab.isDesktopMode)
 
-            if (tab.isIncognito) {
-                settings.cacheMode = WebSettings.LOAD_NO_CACHE
-                clearHistory()
-                clearFormData()
-            }
+                if (tab.isIncognito) {
+                    settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                    clearHistory()
+                    clearFormData()
+                }
 
-            // Long-press Context Menu for Links, Images, and Image-Links
-            setOnLongClickListener {
-                val hit = hitTestResult
-                when (hit.type) {
-                    WebView.HitTestResult.SRC_ANCHOR_TYPE -> {
-                        val linkUrl = hit.extra
-                        if (!linkUrl.isNullOrBlank()) {
+                // Long-press Context Menu for Links, Images, and Image-Links
+                setOnLongClickListener {
+                    val hit = hitTestResult
+                    when (hit.type) {
+                        WebView.HitTestResult.SRC_ANCHOR_TYPE -> {
+                            val linkUrl = hit.extra
+                            if (!linkUrl.isNullOrBlank()) {
+                                val msg = android.os.Message.obtain()
+                                msg.target = object : android.os.Handler(android.os.Looper.getMainLooper()) {
+                                    override fun handleMessage(m: android.os.Message) {
+                                        val url = m.data.getString("url") ?: linkUrl
+                                        val title = m.data.getString("title")
+                                        viewModel.showContextMenu(
+                                            ContextMenuData.Link(
+                                                url = url,
+                                                title = title,
+                                                linkText = title
+                                            )
+                                        )
+                                    }
+                                }
+                                requestFocusNodeHref(msg)
+                                true
+                            } else false
+                        }
+                        WebView.HitTestResult.IMAGE_TYPE -> {
+                            val imageUrl = hit.extra
+                            if (!imageUrl.isNullOrBlank()) {
+                                viewModel.showContextMenu(ContextMenuData.Image(imageUrl = imageUrl))
+                                true
+                            } else false
+                        }
+                        WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                            val linkUrl = hit.extra
                             val msg = android.os.Message.obtain()
                             msg.target = object : android.os.Handler(android.os.Looper.getMainLooper()) {
                                 override fun handleMessage(m: android.os.Message) {
-                                    val url = m.data.getString("url") ?: linkUrl
+                                    val url = m.data.getString("url") ?: linkUrl ?: ""
+                                    val src = m.data.getString("src") ?: linkUrl ?: ""
                                     val title = m.data.getString("title")
                                     viewModel.showContextMenu(
-                                        ContextMenuData.Link(
-                                            url = url,
+                                        ContextMenuData.ImageLink(
+                                            linkUrl = url,
+                                            imageUrl = src,
                                             title = title,
                                             linkText = title
                                         )
@@ -125,77 +183,55 @@ fun BrowserWebView(
                             }
                             requestFocusNodeHref(msg)
                             true
-                        } else false
-                    }
-                    WebView.HitTestResult.IMAGE_TYPE -> {
-                        val imageUrl = hit.extra
-                        if (!imageUrl.isNullOrBlank()) {
-                            viewModel.showContextMenu(ContextMenuData.Image(imageUrl = imageUrl))
-                            true
-                        } else false
-                    }
-                    WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
-                        val linkUrl = hit.extra
-                        val msg = android.os.Message.obtain()
-                        msg.target = object : android.os.Handler(android.os.Looper.getMainLooper()) {
-                            override fun handleMessage(m: android.os.Message) {
-                                val url = m.data.getString("url") ?: linkUrl ?: ""
-                                val src = m.data.getString("src") ?: linkUrl ?: ""
-                                val title = m.data.getString("title")
-                                viewModel.showContextMenu(
-                                    ContextMenuData.ImageLink(
-                                        linkUrl = url,
-                                        imageUrl = src,
-                                        title = title,
-                                        linkText = title
-                                    )
-                                )
-                            }
                         }
-                        requestFocusNodeHref(msg)
-                        true
+                        else -> false
                     }
-                    else -> false
+                }
+
+                setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
+                    DownloadHandler.startDownload(
+                        context = context,
+                        url = url,
+                        userAgent = userAgent,
+                        contentDisposition = contentDisposition,
+                        mimeType = mimetype,
+                        contentLength = contentLength,
+                        onDownloadStarted = { entity ->
+                            viewModel.onDownloadStarted(entity)
+                        }
+                    )
+                }
+
+                setFindListener { activeMatchOrdinal, numberOfMatches, isDoneCounting ->
+                    if (isDoneCounting) {
+                        viewModel.onFindResult(activeMatchOrdinal, numberOfMatches)
+                    }
                 }
             }
-
-            setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
-                DownloadHandler.startDownload(
-                    context = context,
-                    url = url,
-                    userAgent = userAgent,
-                    contentDisposition = contentDisposition,
-                    mimeType = mimetype,
-                    contentLength = contentLength,
-                    onDownloadStarted = { entity ->
-                        viewModel.onDownloadStarted(entity)
-                    }
-                )
-            }
-
-            setFindListener { activeMatchOrdinal, numberOfMatches, isDoneCounting ->
-                if (isDoneCounting) {
-                    viewModel.onFindResult(activeMatchOrdinal, numberOfMatches)
-                }
-            }
+        } catch (e: Exception) {
+            Log.e("BrowserWebView", "Critical error initializing WebView instance", e)
+            webViewInitError = e.localizedMessage ?: "Android System WebView is currently unavailable, updating, or failed to initialize."
+            null
         }
     }
 
     // Update settings when tab or state changes
     LaunchedEffect(tab.isDesktopMode, isJavaScriptEnabled) {
-        webView.settings.javaScriptEnabled = isJavaScriptEnabled
+        val wv = webView ?: return@LaunchedEffect
+        wv.settings.javaScriptEnabled = isJavaScriptEnabled
         val targetUserAgent = UserAgentHelper.getUserAgent(context, tab.isDesktopMode)
-        if (webView.settings.userAgentString != targetUserAgent) {
-            UserAgentHelper.switchUserAgent(webView, tab.isDesktopMode)
-            if (webView.url != null && webView.url != "about:blank") {
-                webView.reload()
+        if (wv.settings.userAgentString != targetUserAgent) {
+            UserAgentHelper.switchUserAgent(wv, tab.isDesktopMode)
+            if (wv.url != null && wv.url != "about:blank") {
+                wv.reload()
             }
         }
     }
 
     // Set clients
     LaunchedEffect(webView, tab.id) {
-        webView.webViewClient = object : WebViewClient() {
+        val wv = webView ?: return@LaunchedEffect
+        wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url?.toString() ?: return false
 
@@ -236,6 +272,33 @@ fun BrowserWebView(
                 }
             }
 
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                if (request == null) return null
+
+                val reqUrl = request.url?.toString() ?: return null
+
+                // Do not block main frame navigation
+                if (request.isForMainFrame) {
+                    return null
+                }
+
+                val uiState = viewModel.uiState.value
+                if (uiState.isAdBlockEnabled) {
+                    val pageHost = view?.url?.let {
+                        try { Uri.parse(it).host } catch (e: Exception) { null }
+                    }
+                    if (AdBlockEngine.isAdOrTracker(reqUrl, pageHost, uiState.adBlockWhitelistedDomains)) {
+                        viewModel.incrementBlockedAdsCount(tab.id)
+                        return AdBlockEngine.createEmptyResponse()
+                    }
+                }
+
+                return null
+            }
+
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
                 val canBack = view?.canGoBack() ?: false
@@ -246,6 +309,7 @@ fun BrowserWebView(
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 viewModel.clearPageError(tab.id)
+                viewModel.resetBlockedAdsCount(tab.id)
                 if (url != null) {
                     val canBack = view?.canGoBack() ?: false
                     val canForward = view?.canGoForward() ?: false
@@ -415,6 +479,14 @@ fun BrowserWebView(
                 val hitTest = view?.hitTestResult
                 val popupUrl = hitTest?.extra
                 if (!popupUrl.isNullOrBlank()) {
+                    val uiState = viewModel.uiState.value
+                    if (uiState.isAdBlockEnabled) {
+                        val pageHost = view?.url?.let { try { Uri.parse(it).host } catch (e: Exception) { null } }
+                        if (AdBlockEngine.isAdOrTracker(popupUrl, pageHost, uiState.adBlockWhitelistedDomains)) {
+                            viewModel.incrementBlockedAdsCount(tab.id)
+                            return true // Intercepted and blocked popup ad window
+                        }
+                    }
                     viewModel.loadUrl(popupUrl)
                     return true
                 }
@@ -465,53 +537,55 @@ fun BrowserWebView(
 
     // Initial load if tab has URL and hasn't loaded yet
     LaunchedEffect(tab.id, tab.url) {
-        if (tab.url.isNotBlank() && tab.url != "about:blank" && (webView.url == null || webView.url == "about:blank")) {
-            webView.loadUrl(tab.url)
+        val wv = webView ?: return@LaunchedEffect
+        if (tab.url.isNotBlank() && tab.url != "about:blank" && (wv.url == null || wv.url == "about:blank")) {
+            wv.loadUrl(tab.url)
         }
     }
 
     // Handle commands from ViewModel
     val action = viewModel.webAction
     LaunchedEffect(action.value) {
+        val wv = webView ?: return@LaunchedEffect
         val currentAction = action.value ?: return@LaunchedEffect
         when (currentAction) {
             is BrowserViewModel.WebAction.LoadUrl -> {
                 if (currentAction.tabId == tab.id) {
-                    webView.loadUrl(currentAction.url)
+                    wv.loadUrl(currentAction.url)
                     viewModel.resetWebAction()
                 }
             }
             is BrowserViewModel.WebAction.GoBack -> {
-                if (currentAction.tabId == tab.id && webView.canGoBack()) {
-                    webView.goBack()
+                if (currentAction.tabId == tab.id && wv.canGoBack()) {
+                    wv.goBack()
                     viewModel.resetWebAction()
                 }
             }
             is BrowserViewModel.WebAction.GoForward -> {
-                if (currentAction.tabId == tab.id && webView.canGoForward()) {
-                    webView.goForward()
+                if (currentAction.tabId == tab.id && wv.canGoForward()) {
+                    wv.goForward()
                     viewModel.resetWebAction()
                 }
             }
             is BrowserViewModel.WebAction.Reload -> {
                 if (currentAction.tabId == tab.id) {
-                    webView.reload()
+                    wv.reload()
                     viewModel.resetWebAction()
                 }
             }
             is BrowserViewModel.WebAction.StopLoading -> {
                 if (currentAction.tabId == tab.id) {
-                    webView.stopLoading()
+                    wv.stopLoading()
                     viewModel.resetWebAction()
                 }
             }
             is BrowserViewModel.WebAction.FindInPage -> {
-                webView.findAllAsync(currentAction.query)
+                wv.findAllAsync(currentAction.query)
                 viewModel.resetWebAction()
             }
             is BrowserViewModel.WebAction.ClearFindInPage -> {
                 if (currentAction.tabId == tab.id) {
-                    webView.clearMatches()
+                    wv.clearMatches()
                     viewModel.resetWebAction()
                 }
             }
@@ -520,36 +594,89 @@ fun BrowserWebView(
 
     // Manage WebView lifecycle to prevent buffer/codec exhaustion and register with agent
     DisposableEffect(tab.id, tab.renderRevision) {
-        viewModel.registerWebView(tab.id, webView)
-        webView.onResume()
+        val wv = webView
+        if (wv != null) {
+            viewModel.registerWebView(tab.id, wv)
+            wv.onResume()
+        }
         onDispose {
-            viewModel.unregisterWebView(tab.id)
-            // Pause any media playback immediately to release MediaCodec decoder instances
-            try {
-                webView.evaluateJavascript(
-                    "try { document.querySelectorAll('video, audio').forEach(function(m) { m.pause(); }); } catch(e) {}",
-                    null
-                )
-            } catch (ignored: Exception) {}
-            webView.onPause()
-            webView.stopLoading()
-            (webView.parent as? ViewGroup)?.removeView(webView)
-            if (tab.isIncognito) {
-                webView.clearHistory()
-                webView.clearFormData()
+            if (wv != null) {
+                viewModel.unregisterWebView(tab.id)
+                // Pause any media playback immediately to release MediaCodec decoder instances
+                try {
+                    wv.evaluateJavascript(
+                        "try { document.querySelectorAll('video, audio').forEach(function(m) { m.pause(); }); } catch(e) {}",
+                        null
+                    )
+                } catch (ignored: Exception) {}
+                wv.onPause()
+                wv.stopLoading()
+                (wv.parent as? ViewGroup)?.removeView(wv)
+                if (tab.isIncognito) {
+                    wv.clearHistory()
+                    wv.clearFormData()
+                }
             }
         }
     }
 
-    AndroidView(
-        factory = {
-            (webView.parent as? ViewGroup)?.removeView(webView)
-            webView.onResume()
-            webView
-        },
-        update = {
-            it.onResume()
-        },
-        modifier = modifier.fillMaxSize()
-    )
+    if (webViewInitError != null || webView == null) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("webview_init_error_card"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Warning",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "System WebView Error",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = webViewInitError ?: "The Android System WebView failed to initialize. Please verify that Android System WebView is enabled and updated.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    } else {
+        AndroidView(
+            factory = {
+                (webView.parent as? ViewGroup)?.removeView(webView)
+                webView.onResume()
+                webView
+            },
+            update = {
+                it.onResume()
+            },
+            modifier = modifier.fillMaxSize()
+        )
+    }
 }

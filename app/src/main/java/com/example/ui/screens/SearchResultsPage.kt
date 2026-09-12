@@ -123,7 +123,7 @@ fun SearchResultsPage(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val filters = listOf("All", "Web Results", "AI Overview", "Knowledge")
+                        val filters = listOf("All", "Web Results", "Knowledge")
                         items(filters) { filter ->
                             FilterChip(
                                 selected = selectedFilter == filter,
@@ -136,16 +136,6 @@ fun SearchResultsPage(
                                     )
                                 },
                                 leadingIcon = when (filter) {
-                                    "AI Overview" -> {
-                                        {
-                                            Icon(
-                                                imageVector = Icons.Default.AutoAwesome,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        }
-                                    }
                                     "Knowledge" -> {
                                         {
                                             Icon(
@@ -217,13 +207,6 @@ private fun SearchResultsList(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        // AI Overview Card
-        if ((filter == "All" || filter == "AI Overview") && !data.aiSummary.isNullOrBlank()) {
-            item {
-                AiOverviewCard(summary = data.aiSummary)
-            }
-        }
-
         // Instant Answer / Knowledge Panel Card
         if ((filter == "All" || filter == "Knowledge") && data.instantAnswer != null) {
             item {
@@ -317,72 +300,6 @@ private fun SearchResultsList(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun AiOverviewCard(summary: String) {
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-        ),
-        border = CardDefaults.outlinedCardBorder().copy(
-            brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-        ),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "AI",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                Text(
-                    text = "AI Smart Answer",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                ) {
-                    Text(
-                        text = "Gemini Powered",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = summary,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
         }
     }
 }

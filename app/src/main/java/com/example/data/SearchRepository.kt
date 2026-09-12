@@ -2,7 +2,6 @@ package com.example.data
 
 import android.net.Uri
 import android.util.Log
-import com.example.ai.GeminiApiClient
 import com.example.model.InstantAnswer
 import com.example.model.SearchResultData
 import com.example.model.SearchResultItem
@@ -18,9 +17,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.regex.Pattern
 
-class SearchRepository(
-    private val geminiApiClient: GeminiApiClient? = null
-) {
+class SearchRepository {
     suspend fun performSearch(query: String): SearchResultData = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
@@ -30,7 +27,6 @@ class SearchRepository(
         var instantAnswer: InstantAnswer? = null
         var webResults: List<SearchResultItem> = emptyList()
         var relatedQueries: List<String> = emptyList()
-        var aiSummary: String? = null
         var errorMsg: String? = null
 
         try {
@@ -55,35 +51,10 @@ class SearchRepository(
             Log.w("SearchRepository", "Failed to fetch related queries", e)
         }
 
-        // 4. Optionally fetch Gemini AI Quick Overview if available
-        if (geminiApiClient != null) {
-            try {
-                val prompt = "Give a concise 2-sentence summary answering the query: '$trimmed'. Focus on key facts or definition."
-                val contents = JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().apply { put("text", prompt) })
-                        })
-                    })
-                }
-                val response = geminiApiClient.generateWithFailover(
-                    model = "gemini-2.0-flash",
-                    contents = contents,
-                    includeTools = false
-                )
-                if (response is com.example.ai.GeminiResponse.Success && !response.text.isNullOrBlank()) {
-                    aiSummary = response.text.trim()
-                }
-            } catch (e: Exception) {
-                Log.w("SearchRepository", "Gemini AI summary omitted", e)
-            }
-        }
-
         SearchResultData(
             query = trimmed,
             instantAnswer = instantAnswer,
-            aiSummary = aiSummary,
+            aiSummary = null,
             webResults = webResults,
             relatedQueries = relatedQueries,
             isLoading = false,

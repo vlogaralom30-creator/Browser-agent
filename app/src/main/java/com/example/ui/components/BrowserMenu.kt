@@ -172,31 +172,7 @@ fun BrowserMenu(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // AI Browser Agent
-            MenuItem(
-                icon = Icons.Default.AutoAwesome,
-                title = "AI Browser Agent",
-                tint = MaterialTheme.colorScheme.primary,
-                onClick = {
-                    onDismiss()
-                    viewModel.navigateToScreen(BrowserScreen.AI_AGENT)
-                }
-            )
 
-            // AI Prompts Library
-            MenuItem(
-                icon = Icons.Default.BookmarkBorder,
-                title = "AI Prompts Library",
-                onClick = {
-                    onDismiss()
-                    viewModel.navigateToScreen(BrowserScreen.SAVED_PROMPTS)
-                }
-            )
-
-            HorizontalDivider(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            )
 
             // New Tab
             MenuItem(
@@ -349,6 +325,57 @@ fun BrowserMenu(
                     viewModel.showCrawlBotSheet(true)
                 }
             )
+
+            // Ad & Tracker Protection toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        viewModel.setAdBlockEnabled(!uiState.isAdBlockEnabled)
+                    }
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .testTag("menu_ad_block"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Shield,
+                        contentDescription = null,
+                        tint = if (uiState.isAdBlockEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            text = "Block Ads & Trackers",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (uiState.isAdBlockEnabled) {
+                            Text(
+                                text = "${tab?.blockedAdsCount ?: 0} blocked on this page",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Text(
+                                text = "Protection paused",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Switch(
+                    checked = uiState.isAdBlockEnabled,
+                    onCheckedChange = { viewModel.setAdBlockEnabled(it) }
+                )
+            }
 
             // Desktop site toggle
             Row(

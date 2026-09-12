@@ -63,6 +63,14 @@ class BrowserPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_SMART_PRIVATE_PROTECTION_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_SMART_PRIVATE_PROTECTION_ENABLED, value).apply()
 
+    var isAdBlockEnabled: Boolean
+        get() = prefs.getBoolean(KEY_AD_BLOCK_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_AD_BLOCK_ENABLED, value).apply()
+
+    var adBlockWhitelistedDomains: Set<String>
+        get() = prefs.getStringSet(KEY_AD_BLOCK_WHITELIST, emptySet()) ?: emptySet()
+        set(value) = prefs.edit().putStringSet(KEY_AD_BLOCK_WHITELIST, value).apply()
+
     companion object {
         private const val KEY_SEARCH_ENGINE = "key_search_engine"
         private const val KEY_THEME_MODE = "key_theme_mode"
@@ -73,5 +81,7 @@ class BrowserPreferences(context: Context) {
         private const val KEY_CUSTOM_SHORTCUTS = "key_custom_shortcuts"
         private const val KEY_SAVED_TABS = "key_saved_tabs"
         private const val KEY_SMART_PRIVATE_PROTECTION_ENABLED = "key_smart_private_protection_enabled"
+        private const val KEY_AD_BLOCK_ENABLED = "key_ad_block_enabled"
+        private const val KEY_AD_BLOCK_WHITELIST = "key_ad_block_whitelist"
     }
 }

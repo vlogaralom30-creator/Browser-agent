@@ -62,12 +62,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.AppThemeMode
-import com.example.data.agent.AgentConfigEntity
 import com.example.model.SearchEngine
 import com.example.ui.BrowserScreen
 import com.example.ui.BrowserUiState
 import com.example.ui.BrowserViewModel
-import com.example.ui.agent.ModelSelectionDialog
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,15 +76,11 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val agentRepo = viewModel.agentRepository
-    val apiKeys by agentRepo.allApiKeys.collectAsState(initial = emptyList())
-    val config by agentRepo.configFlow.collectAsState(initial = AgentConfigEntity())
 
     var showSearchEngineDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showHomePageDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
-    var showModelSelectorDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -152,62 +146,6 @@ fun SettingsScreen(
                 modifier = Modifier.padding(vertical = 4.dp)
             )
 
-            SettingsCategoryHeader("AI Agent & Gemini API Keys")
-
-            val activeKeysCount = apiKeys.count { it.isEnabled }
-            SettingsClickableItem(
-                icon = Icons.Default.Key,
-                title = "Gemini API Keys",
-                subtitle = if (apiKeys.isEmpty()) "No API key added • Tap to add manually"
-                else "$activeKeysCount active key${if (activeKeysCount == 1) "" else "s"} configured",
-                onClick = { viewModel.navigateToScreen(BrowserScreen.API_KEYS) }
-            )
-
-            SettingsClickableItem(
-                icon = Icons.Default.AutoAwesome,
-                title = "Active AI Model",
-                subtitle = (config?.activeModel ?: "gemini-2.0-flash").removePrefix("models/"),
-                onClick = { showModelSelectorDialog = true }
-            )
-
-            SettingsClickableItem(
-                icon = Icons.Default.BookmarkBorder,
-                title = "Saved AI Prompts Library",
-                subtitle = "View and manage extracted prompts",
-                onClick = { viewModel.navigateToScreen(BrowserScreen.SAVED_PROMPTS) }
-            )
-
-            SettingsSwitchItem(
-                icon = Icons.Default.Refresh,
-                title = "Auto-Failover Across Keys",
-                subtitle = "Automatically switch API keys if rate limits or quota are reached",
-                checked = config?.isAutoFailoverEnabled ?: true,
-                onCheckedChange = { enabled ->
-                    coroutineScope.launch {
-                        val current = config ?: AgentConfigEntity()
-                        agentRepo.updateConfig(current.copy(isAutoFailoverEnabled = enabled))
-                    }
-                }
-            )
-
-            SettingsSwitchItem(
-                icon = Icons.Default.Visibility,
-                title = "Screen & Vision Analysis",
-                subtitle = "Allow AI Agent to inspect page screenshots for visual context",
-                checked = config?.isVisionEnabled ?: true,
-                onCheckedChange = { enabled ->
-                    coroutineScope.launch {
-                        val current = config ?: AgentConfigEntity()
-                        agentRepo.updateConfig(current.copy(isVisionEnabled = enabled))
-                    }
-                }
-            )
-
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-
             SettingsCategoryHeader("Advanced & Web")
 
             SettingsSwitchItem(
@@ -232,6 +170,14 @@ fun SettingsScreen(
             )
 
             SettingsCategoryHeader("Privacy & Security")
+
+            SettingsSwitchItem(
+                icon = Icons.Default.Shield,
+                title = "Block Ads & Privacy Trackers",
+                subtitle = "Intercept intrusive ad servers, popups, and tracking pixels to speed up page loads",
+                checked = state.isAdBlockEnabled,
+                onCheckedChange = { viewModel.setAdBlockEnabled(it) }
+            )
 
             SettingsSwitchItem(
                 icon = Icons.Default.Security,
@@ -430,20 +376,7 @@ fun SettingsScreen(
         )
     }
 
-    if (showModelSelectorDialog) {
-        ModelSelectionDialog(
-            currentModel = config?.activeModel ?: "gemini-2.0-flash",
-            agentRepository = agentRepo,
-            onModelSelected = { selectedModel ->
-                coroutineScope.launch {
-                    val current = config ?: AgentConfigEntity()
-                    agentRepo.updateConfig(current.copy(activeModel = selectedModel))
-                }
-                showModelSelectorDialog = false
-            },
-            onDismiss = { showModelSelectorDialog = false }
-        )
-    }
+
 }
 
 @Composable

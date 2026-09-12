@@ -15,7 +15,6 @@ import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.File
-import com.example.ai.BrowserAgentController
 import com.example.data.BookmarkEntity
 import com.example.data.BrowserDatabase
 import com.example.data.BrowserPreferences
@@ -24,7 +23,6 @@ import com.example.data.DownloadEntity
 import com.example.data.DownloadStatus
 import com.example.data.HistoryEntity
 import com.example.data.AppThemeMode
-import com.example.data.agent.AgentRepository
 import com.example.model.BrowserTab
 import com.example.model.ContextMenuData
 import com.example.model.PageErrorCategory
@@ -33,7 +31,6 @@ import com.example.model.ShortcutItem
 import com.example.model.WebPermissionRequest
 import com.example.util.SecurePrivateSessionManager
 import com.example.util.UrlUtils
-import com.example.ai.GeminiApiClient
 import com.example.data.SearchRepository
 import com.example.model.SearchResultData
 import com.example.model.CrawlBotState
@@ -48,8 +45,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 
 enum class BrowserScreen {
     BROWSER,
@@ -57,10 +52,7 @@ enum class BrowserScreen {
     BOOKMARKS,
     HISTORY,
     DOWNLOADS,
-    SETTINGS,
-    AI_AGENT,
-    SAVED_PROMPTS,
-    API_KEYS
+    SETTINGS
 }
 
 enum class PrivatePinPromptMode {
@@ -107,6 +99,8 @@ data class BrowserUiState(
     val smartPrivateDomains: Set<String> = emptySet(),
     val smartPrivateNotification: String? = null,
     val showSmartPrivateDomainsDialog: Boolean = false,
+    val isAdBlockEnabled: Boolean = true,
+    val adBlockWhitelistedDomains: Set<String> = emptySet(),
     val showCrawlBotSheet: Boolean = false,
     val crawlBotState: CrawlBotState = CrawlBotState()
 ) {
@@ -133,16 +127,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         preferences
     )
 
-    // Agent Repository & Controller
-    val agentRepository = AgentRepository(application)
-    val agentController = BrowserAgentController(
-        context = application,
-        agentRepository = agentRepository,
-        viewModel = this,
-        scope = viewModelScope
-    )
-
-    val searchRepository = SearchRepository(GeminiApiClient(agentRepository))
+    val searchRepository = SearchRepository()
 
     // Active WebView registry for real browser action execution
     private val registeredWebViews = mutableMapOf<String, WebView>()
@@ -230,6 +215,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val isLockedInitial = hasPin && (restoredPrivateTabs.isNotEmpty() || privateSessionManager.hasSavedPrivateSession())
         val smartPrivateEnabled = repository.isSmartPrivateProtectionEnabled
         val smartDomains = privateSessionManager.getSmartPrivateDomains()
+        val adBlockEnabled = repository.isAdBlockEnabled
+        val adBlockWhitelist = repository.adBlockWhitelistedDomains
 
         _uiState.update {
             it.copy(
@@ -242,6 +229,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 isPrivateSessionLocked = isLockedInitial,
                 isSmartPrivateProtectionEnabled = smartPrivateEnabled,
                 smartPrivateDomains = smartDomains,
+                isAdBlockEnabled = adBlockEnabled,
+                adBlockWhitelistedDomains = adBlockWhitelist,
                 searchEngine = repository.searchEngine,
                 themeMode = repository.themeMode,
                 isDesktopModeDefault = repository.isDesktopModeDefault,
@@ -249,10 +238,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 homePageUrl = repository.homePageUrl,
                 customShortcuts = repository.getCustomShortcuts()
             )
-        }
-
-        viewModelScope.launch {
-            agentRepository.initializeDefaultsIfEmpty()
         }
 
         viewModelScope.launch {
@@ -292,6 +277,30 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun stopCrawlBot() = siteCrawlerEngine.stopCrawl()
 
     fun resetCrawlBot() = siteCrawlerEngine.resetBot()
+
+    fun startYoutubeBot(
+        query: String,
+        criteria: String,
+        like: Boolean,
+        comment: Boolean,
+        commentText: String
+    ) {
+        val currentTabId = _uiState.value.currentTab?.id
+        siteCrawlerEngine.startYtBot(
+            query = query,
+            criteria = criteria,
+            like = like,
+            comment = comment,
+            commentText = commentText,
+            scope = viewModelScope,
+            loadUrlAction = { url -> loadUrl(url) },
+            getWebViewProvider = { if (currentTabId != null) getWebViewForTab(currentTabId) else null }
+        )
+    }
+
+    fun clearYoutubeHistory(context: android.content.Context) {
+        siteCrawlerEngine.clearYtHistory(context)
+    }
 
     private fun persistPrivateSessionIfNeeded(tabs: List<BrowserTab>) {
         if (_uiState.value.isPrivateResumeEnabled) {
@@ -874,6 +883,43 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setJavaScriptEnabled(enabled: Boolean) {
         repository.isJavaScriptEnabled = enabled
         _uiState.update { it.copy(isJavaScriptEnabled = enabled) }
+    }
+
+    fun setAdBlockEnabled(enabled: Boolean) {
+        repository.isAdBlockEnabled = enabled
+        _uiState.update { it.copy(isAdBlockEnabled = enabled) }
+    }
+
+    fun toggleAdBlockForCurrentDomain() {
+        val currentTab = _uiState.value.currentTab ?: return
+        val host = try {
+            Uri.parse(currentTab.url).host?.lowercase()?.removePrefix("www.")
+        } catch (e: Exception) { null }
+        if (host.isNullOrBlank()) return
+
+        val currentWhitelist = _uiState.value.adBlockWhitelistedDomains.toMutableSet()
+        if (currentWhitelist.contains(host)) {
+            currentWhitelist.remove(host)
+        } else {
+            currentWhitelist.add(host)
+        }
+        repository.adBlockWhitelistedDomains = currentWhitelist
+        _uiState.update { it.copy(adBlockWhitelistedDomains = currentWhitelist) }
+
+        // Reload active tab to reflect changes
+        reload()
+    }
+
+    fun incrementBlockedAdsCount(tabId: String) {
+        updateTabState(tabId) { tab ->
+            tab.copy(blockedAdsCount = tab.blockedAdsCount + 1)
+        }
+    }
+
+    fun resetBlockedAdsCount(tabId: String) {
+        updateTabState(tabId) { tab ->
+            tab.copy(blockedAdsCount = 0)
+        }
     }
 
     // Custom shortcuts
