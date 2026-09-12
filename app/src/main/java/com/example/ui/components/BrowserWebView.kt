@@ -287,9 +287,7 @@ fun BrowserWebView(
 
                 val uiState = viewModel.uiState.value
                 if (uiState.isAdBlockEnabled) {
-                    val pageHost = view?.url?.let {
-                        try { Uri.parse(it).host } catch (e: Exception) { null }
-                    }
+                    val pageHost = try { Uri.parse(tab.url).host } catch (e: Exception) { null }
                     if (AdBlockEngine.isAdOrTracker(reqUrl, pageHost, uiState.adBlockWhitelistedDomains)) {
                         viewModel.incrementBlockedAdsCount(tab.id)
                         return AdBlockEngine.createEmptyResponse()

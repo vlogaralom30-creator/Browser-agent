@@ -13,13 +13,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
@@ -38,7 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.CrawlBotState
 import com.example.model.CrawlBotStatus
 import com.example.model.CrawlMatchItem
-import com.example.model.YoutubeInteractionItem
+import com.example.model.VideoInteractionItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,12 +55,34 @@ fun CrawlBotSheet(
     onResetBot: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onDismiss: () -> Unit,
-    onStartYtBot: (query: String, criteria: String, like: Boolean, comment: Boolean, commentText: String) -> Unit = { _, _, _, _, _ -> },
-    onClearYtHistory: () -> Unit = {},
+    onStartVideoBot: (query: String, limit: Int, criteria: String, like: Boolean, comment: Boolean, copyLink: Boolean, commentText: String) -> Unit = { _, _, _, _, _, _, _ -> },
+    onConfirmComment: () -> Unit = {},
+    onDenyComment: () -> Unit = {},
+    onClearVideoHistory: () -> Unit = {},
+    onStartTikTokBot: (query: String, limit: Int, minViews: Long, criteria: String, customHashtags: String) -> Unit = { _, _, _, _, _ -> },
+    onClearTikTokHistory: () -> Unit = {},
+    onDeleteTikTokReel: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    // TikTok Viral Bot states
+    var tiktokQueryInput by remember(botState.tiktokQuery) {
+        mutableStateOf(if (botState.tiktokQuery.isNotBlank() && botState.botMode == "tiktok") botState.tiktokQuery else "")
+    }
+    var tiktokSelectedMinViews by remember(botState.tiktokMinViews) {
+        mutableStateOf(botState.tiktokMinViews)
+    }
+    var tiktokSelectedCriteria by remember(botState.tiktokSortCriteria) {
+        mutableStateOf(botState.tiktokSortCriteria)
+    }
+    var tiktokSelectedLimit by remember(botState.tiktokLimit) {
+        mutableStateOf(botState.tiktokLimit.toFloat())
+    }
+    var tiktokHashtagsInput by remember(botState.tiktokCustomHashtags) {
+        mutableStateOf(if (botState.tiktokCustomHashtags.isNotBlank()) botState.tiktokCustomHashtags else "#viral #reels #foryou #trending #explore")
+    }
 
     // Web Crawler states
     var keywordInput by remember(botState.targetKeyword) {
@@ -68,18 +93,27 @@ fun CrawlBotSheet(
     }
     var selectedMaxPages by remember(botState.maxPages) { mutableStateOf(botState.maxPages) }
 
-    // YouTube Bot states
-    var ytQueryInput by remember(botState.ytSearchQuery) {
-        mutableStateOf(if (botState.ytSearchQuery.isNotBlank() && botState.botMode == "youtube") botState.ytSearchQuery else "")
+    // Video Bot states
+    var videoQueryInput by remember(botState.videoSearchQuery) {
+        mutableStateOf(if (botState.videoSearchQuery.isNotBlank() && botState.botMode == "video") botState.videoSearchQuery else "")
     }
-    var selectedCriteria by remember(botState.ytSelectionCriteria) { mutableStateOf(botState.ytSelectionCriteria) }
-    var performLike by remember(botState.ytPerformLike) { mutableStateOf(botState.ytPerformLike) }
-    var performComment by remember(botState.ytPerformComment) { mutableStateOf(botState.ytPerformComment) }
-    var commentTextInput by remember(botState.ytCommentText) { mutableStateOf(botState.ytCommentText) }
+    var selectedCriteria by remember(botState.videoSelectionCriteria) { mutableStateOf(botState.videoSelectionCriteria) }
+    var selectedVideoLimit by remember(botState.videoLimit) { mutableStateOf(botState.videoLimit.toFloat()) }
+    var performLike by remember(botState.videoPerformLike) { mutableStateOf(botState.videoPerformLike) }
+    var performCopyLink by remember(botState.videoPerformCopyLink) { mutableStateOf(botState.videoPerformCopyLink) }
+    var performComment by remember(botState.videoPerformComment) { mutableStateOf(botState.videoPerformComment) }
+    var commentTextInput by remember(botState.videoCommentText) { mutableStateOf(botState.videoCommentText) }
 
-    // Active Tab Mode
+    // Active Tab Mode (0: TikTok Reels, 1: YouTube, 2: Crawler)
     var selectedTab by remember(botState.botMode) {
-        mutableStateOf(if (botState.botMode == "crawler") 1 else 0)
+        mutableStateOf(
+            when (botState.botMode) {
+                "tiktok" -> 0
+                "video" -> 1
+                "crawler" -> 2
+                else -> 0
+            }
+        )
     }
 
     ModalBottomSheet(
@@ -87,29 +121,40 @@ fun CrawlBotSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        modifier = modifier.testTag("crawl_bot_sheet")
+        modifier = modifier
+            .fillMaxHeight(0.94f)
+            .testTag("crawl_bot_sheet")
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp)
         ) {
             // Sheet Header
+            val headerColor = when (selectedTab) {
+                0 -> Color(0xFFFE2C55)
+                1 -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.primary
+            }
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = if (selectedTab == 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                    color = headerColor.copy(alpha = 0.15f),
                     modifier = Modifier.size(40.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (selectedTab == 0) Icons.Default.SmartToy else Icons.Default.SmartToy,
+                            imageVector = when (selectedTab) {
+                                0 -> Icons.Default.MovieFilter
+                                1 -> Icons.Default.SmartToy
+                                else -> Icons.Default.Search
+                            },
                             contentDescription = "Bot",
-                            tint = if (selectedTab == 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            tint = headerColor,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -119,22 +164,31 @@ fun CrawlBotSheet(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (selectedTab == 0) "YouTube Automation Bot" else "Website Crawler Bot",
+                        text = when (selectedTab) {
+                            0 -> "TikTok Viral Reels Hunter"
+                            1 -> "YouTube Action Bot"
+                            else -> "Website Crawler Bot"
+                        },
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (selectedTab == 0) "Search, filter, auto-play, like & comment on YouTube videos" else "Auto-scans pages & finds word locations with direct links",
+                        text = when (selectedTab) {
+                            0 -> "Scrape viral TikToks, download HD & auto-generate Facebook Reels copy"
+                            1 -> "Search, filter, auto-play, like & comment on YouTube videos"
+                            else -> "Auto-scans pages & finds word locations with direct links"
+                        },
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
                 // Status Chip
-                val isYtRunning = botState.status != CrawlBotStatus.IDLE && botState.botMode == "youtube"
+                val isTikTokRunning = botState.status != CrawlBotStatus.IDLE && botState.botMode == "tiktok"
+                val isVideoRunning = botState.status != CrawlBotStatus.IDLE && botState.botMode == "video"
                 val isCrawlerRunning = botState.status != CrawlBotStatus.IDLE && botState.botMode == "crawler"
-                val currentRunningMode = if (isYtRunning) 0 else if (isCrawlerRunning) 1 else -1
+                val currentRunningMode = if (isTikTokRunning) 0 else if (isVideoRunning) 1 else if (isCrawlerRunning) 2 else -1
 
                 val activeStatus = if (currentRunningMode == selectedTab) botState.status else CrawlBotStatus.IDLE
 
@@ -175,7 +229,11 @@ fun CrawlBotSheet(
                 indicator = { tabPositions ->
                     TabRowDefaults.SecondaryIndicator(
                         modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                        color = if (selectedTab == 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        color = when (selectedTab) {
+                            0 -> Color(0xFFFE2C55)
+                            1 -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.primary
+                        }
                     )
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -184,23 +242,41 @@ fun CrawlBotSheet(
                     selected = selectedTab == 0,
                     onClick = { if (!isBotBusy) selectedTab = 0 },
                     enabled = !isBotBusy,
-                    text = { Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("YouTube Bot", fontWeight = FontWeight.Bold)
-                    } },
-                    selectedContentColor = MaterialTheme.colorScheme.error,
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.MovieFilter, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("TikTok Reels", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    },
+                    selectedContentColor = Color(0xFFFE2C55),
                     unselectedContentColor = MaterialTheme.colorScheme.outline
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { if (!isBotBusy) selectedTab = 1 },
                     enabled = !isBotBusy,
-                    text = { Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Web Crawler", fontWeight = FontWeight.Bold)
-                    } },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("YouTube", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    },
+                    selectedContentColor = MaterialTheme.colorScheme.error,
+                    unselectedContentColor = MaterialTheme.colorScheme.outline
+                )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { if (!isBotBusy) selectedTab = 2 },
+                    enabled = !isBotBusy,
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Crawler", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    },
                     selectedContentColor = MaterialTheme.colorScheme.primary,
                     unselectedContentColor = MaterialTheme.colorScheme.outline
                 )
@@ -208,10 +284,42 @@ fun CrawlBotSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // --- PAGE RENDER SECTION ---
-            if (selectedTab == 0) {
+            // --- SCROLLABLE CONTENT BODY ---
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 48.dp)
+            ) {
+                // --- PAGE RENDER SECTION ---
+                if (selectedTab == 0) {
+                    // ==================== TIKTOK VIRAL REELS PANEL ====================
+                    TikTokReelsPanel(
+                        botState = botState,
+                        queryInput = tiktokQueryInput,
+                        onQueryChange = { tiktokQueryInput = it },
+                        selectedMinViews = tiktokSelectedMinViews,
+                        onMinViewsChange = { tiktokSelectedMinViews = it },
+                        selectedCriteria = tiktokSelectedCriteria,
+                        onCriteriaChange = { tiktokSelectedCriteria = it },
+                        selectedLimit = tiktokSelectedLimit,
+                        onLimitChange = { tiktokSelectedLimit = it },
+                        customHashtagsInput = tiktokHashtagsInput,
+                        onCustomHashtagsChange = { tiktokHashtagsInput = it },
+                        onStartTikTokBot = onStartTikTokBot,
+                        onPauseCrawl = onPauseCrawl,
+                        onResumeCrawl = onResumeCrawl,
+                        onStopCrawl = onStopCrawl,
+                        onResetBot = onResetBot,
+                        onClearTikTokHistory = onClearTikTokHistory,
+                        onDeleteTikTokReel = onDeleteTikTokReel,
+                        onOpenUrl = onOpenUrl,
+                        onDismissSheet = onDismiss
+                    )
+                } else if (selectedTab == 1) {
                 // ==================== YOUTUBE AUTOMATION PANEL ====================
-                if (botState.status == CrawlBotStatus.IDLE || botState.status == CrawlBotStatus.STOPPED || botState.status == CrawlBotStatus.COMPLETED || botState.status == CrawlBotStatus.ERROR || botState.botMode != "youtube") {
+                if (botState.status == CrawlBotStatus.IDLE || botState.status == CrawlBotStatus.STOPPED || botState.status == CrawlBotStatus.COMPLETED || botState.status == CrawlBotStatus.ERROR || botState.botMode != "video") {
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
@@ -231,9 +339,9 @@ fun CrawlBotSheet(
 
                             // Search Query Input
                             OutlinedTextField(
-                                value = ytQueryInput,
-                                onValueChange = { ytQueryInput = it },
-                                label = { Text("YouTube Search Query") },
+                                value = videoQueryInput,
+                                onValueChange = { videoQueryInput = it },
+                                label = { Text("Video Search Query") },
                                 placeholder = { Text("e.g. funny cat videos, coding tutorial") },
                                 leadingIcon = {
                                     Icon(
@@ -297,6 +405,39 @@ fun CrawlBotSheet(
                                 }
                             }
 
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Video Limit Selection
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Max Videos to Process",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = selectedVideoLimit.toInt().toString(),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Slider(
+                                value = selectedVideoLimit,
+                                onValueChange = { selectedVideoLimit = it },
+                                valueRange = 1f..99f,
+                                steps = 98,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = MaterialTheme.colorScheme.error,
+                                    activeTrackColor = MaterialTheme.colorScheme.error,
+                                    inactiveTrackColor = MaterialTheme.colorScheme.errorContainer
+                                )
+                            )
+
                             Spacer(modifier = Modifier.height(10.dp))
 
                             // Social Engagement Switch Rows
@@ -320,6 +461,40 @@ fun CrawlBotSheet(
                                 Switch(
                                     checked = performLike,
                                     onCheckedChange = { performLike = it },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.error, checkedTrackColor = MaterialTheme.colorScheme.errorContainer)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Comment, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.outline)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Auto-Comment on Video", fontSize = 12.sp)
+                                }
+                                Switch(
+                                    checked = performComment,
+                                    onCheckedChange = { performComment = it },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.error, checkedTrackColor = MaterialTheme.colorScheme.errorContainer)
+                                )
+                            }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.outline)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Auto-Copy Video Link", fontSize = 12.sp)
+                                }
+                                Switch(
+                                    checked = performCopyLink,
+                                    onCheckedChange = { performCopyLink = it },
                                     colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.error, checkedTrackColor = MaterialTheme.colorScheme.errorContainer)
                                 )
                             }
@@ -364,33 +539,35 @@ fun CrawlBotSheet(
                             Button(
                                 onClick = {
                                     keyboardController?.hide()
-                                    if (ytQueryInput.isNotBlank()) {
-                                        onStartYtBot(
-                                            ytQueryInput.trim(),
+                                    if (videoQueryInput.isNotBlank()) {
+                                        onStartVideoBot(
+                                            videoQueryInput.trim(),
+                                            selectedVideoLimit.toInt(),
                                             selectedCriteria,
                                             performLike,
                                             performComment,
+                                            performCopyLink,
                                             commentTextInput.trim()
                                         )
                                     } else {
                                         Toast.makeText(context, "Please enter a search query", Toast.LENGTH_SHORT).show()
                                     }
                                 },
-                                enabled = ytQueryInput.isNotBlank(),
+                                enabled = videoQueryInput.isNotBlank(),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                                 modifier = Modifier.fillMaxWidth().height(48.dp)
                             ) {
                                 Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Launch YouTube Bot", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Launch Video Bot", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
 
                 // YouTube Execution / Progress Panel
-                if (botState.status != CrawlBotStatus.IDLE && botState.botMode == "youtube") {
+                if (botState.status != CrawlBotStatus.IDLE && botState.botMode == "video") {
                     Spacer(modifier = Modifier.height(10.dp))
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -402,7 +579,7 @@ fun CrawlBotSheet(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = "Active YouTube Task State Logs",
+                                text = "Active Video Task State Logs",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.error
@@ -431,7 +608,7 @@ fun CrawlBotSheet(
                             }
 
                             // If playing video, display active target details
-                            if (botState.ytActiveVideoTitle.isNotBlank()) {
+                            if (botState.videoActiveTitle.isNotBlank()) {
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Column(
                                     modifier = Modifier
@@ -440,7 +617,7 @@ fun CrawlBotSheet(
                                         .padding(10.dp)
                                 ) {
                                     Text(
-                                        text = "Target Video: ${botState.ytActiveVideoTitle}",
+                                        text = "Target Video: ${botState.videoActiveTitle}",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface,
@@ -449,12 +626,12 @@ fun CrawlBotSheet(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "${botState.ytActiveVideoViews} • ${botState.ytActiveVideoDate}",
+                                        text = "${botState.videoActiveViews} • ${botState.videoActiveDate}",
                                         fontSize = 10.sp,
                                         color = MaterialTheme.colorScheme.outline
                                     )
                                     Text(
-                                        text = botState.ytActiveVideoUrl,
+                                        text = botState.videoActiveUrl,
                                         fontSize = 9.sp,
                                         color = MaterialTheme.colorScheme.primary,
                                         maxLines = 1,
@@ -464,6 +641,23 @@ fun CrawlBotSheet(
                             }
 
                             Spacer(modifier = Modifier.height(12.dp))
+
+                            // Comment Confirmation UI
+                            if (botState.status == CrawlBotStatus.WAITING_CONFIRMATION) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text("Action Confirmation Required", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text("Bot is ready to post your comment: \"${botState.videoCommentText}\"", fontSize = 13.sp)
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            OutlinedButton(onClick = onDenyComment, modifier = Modifier.weight(1f)) { Text("Skip") }
+                                            Button(onClick = onConfirmComment, modifier = Modifier.weight(1f)) { Text("Post Comment") }
+                                        }
+                                    }
+                                }
+                            }
 
                             // Stop Button
                             if (botState.status == CrawlBotStatus.RUNNING) {
@@ -503,15 +697,15 @@ fun CrawlBotSheet(
                     Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Stored Action Memory (${botState.ytHistory.size} actions)",
+                        text = "Stored Action Memory (${botState.videoHistory.size} actions)",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.weight(1f))
-                    if (botState.ytHistory.isNotEmpty()) {
+                    if (botState.videoHistory.isNotEmpty()) {
                         IconButton(
-                            onClick = onClearYtHistory,
+                            onClick = onClearVideoHistory,
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(Icons.Default.DeleteSweep, contentDescription = "Clear Memory", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
@@ -521,7 +715,7 @@ fun CrawlBotSheet(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (botState.ytHistory.isEmpty()) {
+                if (botState.videoHistory.isEmpty()) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
@@ -545,8 +739,8 @@ fun CrawlBotSheet(
                             .fillMaxWidth()
                             .heightIn(max = 240.dp)
                     ) {
-                        items(botState.ytHistory.reversed()) { historyItem ->
-                            YtHistoryCard(historyItem = historyItem, onOpenUrl = { url ->
+                        items(botState.videoHistory.reversed()) { historyItem ->
+                            VideoHistoryCard(historyItem = historyItem, onOpenUrl = { url ->
                                 onOpenUrl(url)
                                 onDismiss()
                             })
@@ -855,6 +1049,7 @@ fun CrawlBotSheet(
         }
     }
 }
+}
 
 @Composable
 private fun borderSpacerColor(color: Color) = CardDefaults.outlinedCardBorder().copy(
@@ -1022,8 +1217,8 @@ private fun CrawlMatchCard(
 }
 
 @Composable
-private fun YtHistoryCard(
-    historyItem: YoutubeInteractionItem,
+private fun VideoHistoryCard(
+    historyItem: VideoInteractionItem,
     onOpenUrl: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -1068,7 +1263,7 @@ private fun YtHistoryCard(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = historyItem.videoTitle,
+                text = historyItem.selectedVideoTitle,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -1077,7 +1272,7 @@ private fun YtHistoryCard(
             )
 
             Text(
-                text = "Views: ${historyItem.viewCountText}",
+                text = "Views: ${historyItem.viewsText}",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.outline
             )
@@ -1090,7 +1285,7 @@ private fun YtHistoryCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 // Action Badges (Likes / Comments)
-                if (historyItem.isLiked) {
+                if (historyItem.actionLiked) {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
@@ -1106,7 +1301,7 @@ private fun YtHistoryCard(
                     }
                 }
 
-                if (historyItem.isCommented) {
+                if (historyItem.actionCommented) {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
@@ -1123,10 +1318,10 @@ private fun YtHistoryCard(
                 }
             }
 
-            if (historyItem.commentText.isNotBlank()) {
+            if (historyItem.actionResult.isNotBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Comment: \"${historyItem.commentText}\"",
+                    text = "Comment: \"${historyItem.actionResult}\"",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

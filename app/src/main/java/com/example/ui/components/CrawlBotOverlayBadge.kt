@@ -79,14 +79,23 @@ fun CrawlBotOverlayBadge(
                 Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.widthIn(max = 180.dp)) {
+                    val badgeTitle = when (botState.botMode) {
+                        "tiktok" -> "TikTok Bot (${botState.tiktokCurrentIndex}/${botState.tiktokTotalTarget})"
+                        "video" -> "Video Bot (${botState.videoCurrentIndex}/${botState.videoTotalTarget})"
+                        else -> "Crawler Bot (${botState.totalPagesCrawled}/${botState.maxPages})"
+                    }
+                    val badgeSubtitle = when (botState.botMode) {
+                        "tiktok" -> botState.tiktokActiveStatusStep.ifBlank { botState.currentAction }
+                        else -> botState.currentAction
+                    }
                     Text(
-                        text = "Crawler Bot (${botState.totalPagesCrawled}/${botState.maxPages})",
+                        text = badgeTitle,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = botState.currentAction,
+                        text = badgeSubtitle,
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
                         maxLines = 1,
@@ -96,21 +105,36 @@ fun CrawlBotOverlayBadge(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Found matches badge
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary
-                ) {
-                    Text(
-                        text = "${botState.totalMatchesFound}",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                // Found matches or downloaded count badge
+                if (botState.botMode == "crawler") {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary
+                    ) {
+                        Text(
+                            text = "${botState.totalMatchesFound}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                } else if (botState.botMode == "tiktok" && botState.tiktokDownloadedReels.isNotEmpty()) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.tertiary
+                    ) {
+                        Text(
+                            text = "${botState.tiktokDownloadedReels.size}💾",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
                 }
-
-                Spacer(modifier = Modifier.width(6.dp))
 
                 // Pause/Resume button
                 IconButton(

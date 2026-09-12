@@ -6,7 +6,8 @@ enum class CrawlBotStatus {
     PAUSED,
     COMPLETED,
     STOPPED,
-    ERROR
+    ERROR,
+    WAITING_CONFIRMATION
 }
 
 data class CrawlMatchItem(
@@ -16,20 +17,43 @@ data class CrawlMatchItem(
     val snippets: List<String>
 )
 
-data class YoutubeInteractionItem(
+data class VideoInteractionItem(
     val query: String,
-    val videoTitle: String,
+    val selectedVideoTitle: String,
+    val channel: String,
+    val viewsText: String,
+    val uploadDateText: String,
     val videoUrl: String,
-    val viewCountText: String,
     val timestamp: Long,
-    val isLiked: Boolean,
-    val isCommented: Boolean,
-    val commentText: String
+    val actionSearched: Boolean,
+    val actionOpened: Boolean,
+    val actionLiked: Boolean,
+    val actionCopied: Boolean,
+    val actionCommented: Boolean,
+    val actionResult: String
+)
+
+data class TikTokReelItem(
+    val id: String = System.currentTimeMillis().toString(),
+    val originalTitle: String = "",
+    val spunTitle: String = "",
+    val author: String = "",
+    val viewsText: String = "",
+    val viewsCount: Long = 0L,
+    val likesText: String = "",
+    val sourceVideoUrl: String = "",
+    val downloadUrl: String = "",
+    val localFilePath: String = "",
+    val fileName: String = "",
+    val customTags: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    val isDownloaded: Boolean = true,
+    val readyForFacebook: Boolean = true
 )
 
 data class CrawlBotState(
     val status: CrawlBotStatus = CrawlBotStatus.IDLE,
-    val botMode: String = "youtube", // "youtube" or "crawler"
+    val botMode: String = "tiktok", // "tiktok", "video", or "crawler"
     
     // Website Crawler fields
     val targetKeyword: String = "",
@@ -45,16 +69,35 @@ data class CrawlBotState(
     val results: List<CrawlMatchItem> = emptyList(),
     val errorMessage: String? = null,
 
-    // YouTube Automation Bot fields
-    val ytSearchQuery: String = "",
-    val ytSelectionCriteria: String = "highest_views", // "highest_views" or "newest"
-    val ytPerformLike: Boolean = false,
-    val ytPerformComment: Boolean = false,
-    val ytCommentText: String = "",
-    val ytSessionLogs: List<String> = emptyList(),
-    val ytHistory: List<YoutubeInteractionItem> = emptyList(),
-    val ytActiveVideoTitle: String = "",
-    val ytActiveVideoUrl: String = "",
-    val ytActiveVideoViews: String = "",
-    val ytActiveVideoDate: String = ""
+    // Video Automation Bot fields (YouTube)
+    val videoSearchQuery: String = "",
+    val videoSelectionCriteria: String = "best_match", // "best_match", "newest", "highest_views", "oldest"
+    val videoLimit: Int = 10,
+    val videoPerformLike: Boolean = false,
+    val videoPerformComment: Boolean = false,
+    val videoPerformCopyLink: Boolean = false,
+    val videoCommentText: String = "",
+    val videoSessionLogs: List<String> = emptyList(),
+    val videoHistory: List<VideoInteractionItem> = emptyList(),
+    val videoActiveTitle: String = "",
+    val videoActiveUrl: String = "",
+    val videoActiveViews: String = "",
+    val videoActiveDate: String = "",
+    val videoActiveChannel: String = "",
+    val videoCurrentIndex: Int = 0,
+    val videoTotalTarget: Int = 0,
+
+    // TikTok Viral Bot fields (Reels Hunter & Downloader)
+    val tiktokQuery: String = "",
+    val tiktokMinViews: Long = 50000L,
+    val tiktokSortCriteria: String = "highest_views", // "highest_views", "most_viral", "newest"
+    val tiktokLimit: Int = 5,
+    val tiktokCustomHashtags: String = "#viral #reels #foryou #trending #explore",
+    val tiktokDownloadedReels: List<TikTokReelItem> = emptyList(),
+    val tiktokCurrentIndex: Int = 0,
+    val tiktokTotalTarget: Int = 0,
+    val tiktokActiveTitle: String = "",
+    val tiktokActiveViews: String = "",
+    val tiktokActiveStatusStep: String = "",
+    val tiktokLogs: List<String> = emptyList()
 )

@@ -278,28 +278,60 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun resetCrawlBot() = siteCrawlerEngine.resetBot()
 
-    fun startYoutubeBot(
-        query: String,
-        criteria: String,
-        like: Boolean,
-        comment: Boolean,
-        commentText: String
-    ) {
+    fun startVideoBot(query: String, limit: Int, criteria: String, like: Boolean, comment: Boolean, copyLink: Boolean, commentText: String) {
         val currentTabId = _uiState.value.currentTab?.id
-        siteCrawlerEngine.startYtBot(
+        siteCrawlerEngine.startVideoBot(
             query = query,
+            limit = limit,
             criteria = criteria,
             like = like,
             comment = comment,
             commentText = commentText,
+            copyLink = copyLink,
             scope = viewModelScope,
             loadUrlAction = { url -> loadUrl(url) },
             getWebViewProvider = { if (currentTabId != null) getWebViewForTab(currentTabId) else null }
         )
     }
 
-    fun clearYoutubeHistory(context: android.content.Context) {
-        siteCrawlerEngine.clearYtHistory(context)
+    fun confirmVideoComment() {
+        siteCrawlerEngine.confirmCommentAction()
+    }
+
+    fun denyVideoComment() {
+        siteCrawlerEngine.denyCommentAction()
+    }
+
+    fun clearVideoHistory() {
+        siteCrawlerEngine.clearVideoHistory(getApplication())
+    }
+
+    fun startTikTokBot(
+        query: String,
+        limit: Int,
+        minViews: Long,
+        criteria: String,
+        customHashtags: String
+    ) {
+        val currentTabId = _uiState.value.currentTab?.id
+        siteCrawlerEngine.startTikTokBot(
+            query = query,
+            limit = limit,
+            minViews = minViews,
+            criteria = criteria,
+            customHashtags = customHashtags,
+            scope = viewModelScope,
+            loadUrlAction = { url -> loadUrl(url) },
+            getWebViewProvider = { if (currentTabId != null) getWebViewForTab(currentTabId) else null }
+        )
+    }
+
+    fun clearTikTokHistory() {
+        siteCrawlerEngine.clearTikTokHistory(getApplication())
+    }
+
+    fun deleteTikTokReel(id: String) {
+        siteCrawlerEngine.deleteTikTokReel(getApplication(), id)
     }
 
     private fun persistPrivateSessionIfNeeded(tabs: List<BrowserTab>) {

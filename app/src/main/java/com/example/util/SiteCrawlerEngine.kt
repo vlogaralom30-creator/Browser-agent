@@ -3,12 +3,13 @@ package com.example.util
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.widget.Toast
 import android.util.Log
 import android.webkit.WebView
 import com.example.model.CrawlBotState
 import com.example.model.CrawlBotStatus
 import com.example.model.CrawlMatchItem
-import com.example.model.YoutubeInteractionItem
+import com.example.model.VideoInteractionItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -233,13 +234,15 @@ class SiteCrawlerEngine {
         if (_botState.value.status == CrawlBotStatus.PAUSED) {
             val state = _botState.value
             _botState.update { it.copy(status = CrawlBotStatus.RUNNING, currentAction = "Resuming Bot...") }
-            if (state.botMode == "youtube") {
-                startYtBot(
-                    query = state.ytSearchQuery,
-                    criteria = state.ytSelectionCriteria,
-                    like = state.ytPerformLike,
-                    comment = state.ytPerformComment,
-                    commentText = state.ytCommentText,
+            if (state.botMode == "video") {
+                startVideoBot(
+                    query = state.videoSearchQuery,
+                    limit = state.videoLimit,
+                    criteria = state.videoSelectionCriteria,
+                    like = state.videoPerformLike,
+                    comment = state.videoPerformComment,
+                    copyLink = state.videoPerformCopyLink,
+                    commentText = state.videoCommentText,
                     scope = scope,
                     loadUrlAction = loadUrlAction,
                     getWebViewProvider = getWebViewProvider
@@ -377,11 +380,13 @@ class SiteCrawlerEngine {
 
     // --- YouTube Browser Automation Bot (Specialized Implementation) ---
 
-    fun startYtBot(
+    fun startVideoBot(
         query: String,
-        criteria: String, // "highest_views" or "newest"
+        limit: Int,
+        criteria: String, // "best_match", "newest", "highest_views", "oldest"
         like: Boolean,
         comment: Boolean,
+        copyLink: Boolean,
         commentText: String,
         scope: CoroutineScope,
         loadUrlAction: (String) -> Unit,
@@ -392,43 +397,69 @@ class SiteCrawlerEngine {
 
         stopCrawl()
 
-        // Fetch past context/history from SharedPreferences
         val webView = getWebViewProvider()
         val context = webView?.context
-        val loadedHistory = if (context != null) loadYtHistory(context) else emptyList()
+        val loadedHistory = if (context != null) loadVideoHistory(context) else emptyList()
 
         _botState.value = CrawlBotState(
             status = CrawlBotStatus.RUNNING,
-            botMode = "youtube",
-            ytSearchQuery = trimmedQuery,
-            ytSelectionCriteria = criteria,
-            ytPerformLike = like,
-            ytPerformComment = comment,
-            ytCommentText = commentText,
-            ytHistory = loadedHistory,
-            ytSessionLogs = listOf("YouTube Automation Bot initialized successfully.", "Retrieved ${loadedHistory.size} previous interactions from local memory storage.")
+            botMode = "video",
+            videoSearchQuery = trimmedQuery,
+            videoSelectionCriteria = criteria,
+            videoLimit = limit,
+            videoPerformLike = like,
+            videoPerformComment = comment,
+            videoPerformCopyLink = copyLink,
+            videoCommentText = commentText,
+            videoHistory = loadedHistory,
+            videoCurrentIndex = 0,
+            videoTotalTarget = 0,
+            videoSessionLogs = listOf("Video Action Bot initialized successfully. Limit: $limit videos.", "Retrieved ${loadedHistory.size} previous interactions.")
         )
 
         crawlJob = scope.launch(Dispatchers.Main) {
-            runYtAutomationFlow(trimmedQuery, criteria, like, comment, commentText, loadUrlAction, getWebViewProvider)
+            runVideoAutomationFlow(trimmedQuery, limit, criteria, like, comment, copyLink, commentText, loadUrlAction, getWebViewProvider)
         }
     }
 
-    private suspend fun runYtAutomationFlow(
+    fun confirmCommentAction() {
+        if (_botState.value.status == CrawlBotStatus.WAITING_CONFIRMATION) {
+            _botState.update { it.copy(status = CrawlBotStatus.RUNNING, currentAction = "User confirmed comment. Proceeding...") }
+        }
+    }
+
+    fun denyCommentAction() {
+        if (_botState.value.status == CrawlBotStatus.WAITING_CONFIRMATION) {
+            _botState.update { it.copy(status = CrawlBotStatus.RUNNING, currentAction = "User denied comment. Skipping...", videoPerformComment = false) }
+        }
+    }
+
+    private suspend fun runVideoAutomationFlow(
         query: String,
+        limit: Int,
         criteria: String,
         like: Boolean,
         comment: Boolean,
+        copyLink: Boolean,
         commentText: String,
         loadUrlAction: (String) -> Unit,
         getWebViewProvider: () -> WebView?
     ) {
-        val currentLogs = _botState.value.ytSessionLogs.toMutableList()
+        val currentLogs = _botState.value.videoSessionLogs.toMutableList()
 
         fun log(msg: String) {
-            Log.d("SiteCrawlerEngine", "[YouTube Bot] $msg")
+            Log.d("SiteCrawlerEngine", "[Video Bot] $msg")
             currentLogs.add(msg)
-            _botState.update { it.copy(ytSessionLogs = currentLogs.toList(), currentAction = msg) }
+            _botState.update { it.copy(videoSessionLogs = currentLogs.toList(), currentAction = msg) }
+        }
+
+        suspend fun showToast(msg: String) {
+            val ctx = getWebViewProvider()?.context
+            if (ctx != null) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
         }
 
         try {
@@ -439,15 +470,8 @@ class SiteCrawlerEngine {
                 return
             }
 
-            // Step 1: Navigation
-            log("Navigating programmatically to YouTube Mobile...")
-            withContext(Dispatchers.Main) {
-                loadUrlAction("https://m.youtube.com")
-            }
-            delay(5000)
-
-            // Step 2: Locate and Click Search Bar
-            log("Locating the YouTube Search Bar...")
+            // Step 1: SEARCH (Find Search Bar)
+            log("Locating search bar on the current page...")
             val searchBtnScript = """
                 (function() {
                     function highlightElement(el) {
@@ -459,13 +483,21 @@ class SiteCrawlerEngine {
                         setTimeout(function() { el.style.outline = ''; }, 2000);
                     }
 
-                    var searchBtn = document.querySelector('button.header-search-button, button[aria-label="Search YouTube"], .cxx-search-btn, button[aria-label="Search"], .yt-spec-button-shape-next[aria-label*="Search"]');
+                    // Try to find a search input directly
+                    var input = document.querySelector('input[type="search"], input[name="search_query"], input[name="q"], input[name="search"], input[id*="search"], input[aria-label*="Search"]');
+                    if (input) {
+                        highlightElement(input);
+                        return "found_input_directly";
+                    }
+
+                    // Try to find a search button to reveal input
+                    var searchBtn = document.querySelector('button.header-search-button, button[aria-label*="Search"], .search-btn, [role="button"][aria-label*="Search"], svg[aria-label="Search"]');
                     if (searchBtn) {
                         highlightElement(searchBtn);
                         searchBtn.click();
                         return "clicked_reveal";
                     }
-                    return "visible_or_none";
+                    return "not_found";
                 })();
             """.trimIndent()
 
@@ -474,10 +506,19 @@ class SiteCrawlerEngine {
                 webView.evaluateJavascript(searchBtnScript) { res -> searchBtnRes = res }
             }
             delay(1500)
-            log("Revealing search field... Response: $searchBtnRes")
+            log("Search element reveal result: $searchBtnRes")
 
-            // Step 3: Type Search Query Programmatically & Submit
-            log("Typing search query: '$query'...")
+            // Wait if we couldn't find it, try fallback to YouTube if it's completely alien
+            if (searchBtnRes?.contains("not_found") == true && !webView.url.toString().contains("youtube.com")) {
+                 log("Could not find search bar on current page. Falling back to YouTube.")
+                 withContext(Dispatchers.Main) {
+                     loadUrlAction("https://m.youtube.com")
+                 }
+                 delay(5000)
+            }
+
+            // Step 2: Type Search Query
+            log("Entering search query: '$query'...")
             val escapedQuery = JSONObject.quote(query)
             val typeAndSubmitScript = """
                 (function() {
@@ -490,26 +531,24 @@ class SiteCrawlerEngine {
                         setTimeout(function() { el.style.outline = ''; }, 2000);
                     }
 
-                    var input = document.querySelector('input.search-input, input[name="search"], input[type="search"], .search-box input, input[aria-label="Search YouTube"], input[aria-label="Search"]');
+                    var input = document.querySelector('input.search-input, input[name="search_query"], input[name="search"], input[type="search"], input[name="q"], input[aria-label*="Search"]');
                     if (input) {
                         highlightElement(input);
                         input.value = $escapedQuery;
                         input.dispatchEvent(new Event('input', { bubbles: true }));
                         input.dispatchEvent(new Event('change', { bubbles: true }));
                         
-                        // Fire a soft-keyboard Search submit event for reliable SPA transitions
                         var keyEvent = new KeyboardEvent('keydown', {
                             bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13
                         });
                         input.dispatchEvent(keyEvent);
 
-                        // Form submit as first fallback
                         var form = input.closest('form');
                         if (form) {
                             form.submit();
                             return "submitted_form";
                         }
-                        var submitBtn = document.querySelector('button.search-icon, button.search-button, button[type="submit"], button[aria-label="Search"]');
+                        var submitBtn = document.querySelector('button.search-icon, button.search-button, button[type="submit"], button[aria-label*="Search"]');
                         if (submitBtn) {
                             highlightElement(submitBtn);
                             submitBtn.click();
@@ -525,40 +564,39 @@ class SiteCrawlerEngine {
             withContext(Dispatchers.Main) {
                 webView.evaluateJavascript(typeAndSubmitScript) { res -> submitRes = res }
             }
-            delay(5000) // Wait for results to load fully
-            log("Query submitted. Render status: $submitRes")
+            delay(5000) // Wait for results to load
+            log("Search executed. Status: $submitRes")
 
-            // Scroll down slightly to make sure results are fully fetched and rendered
+            // Auto Scroll to fetch more results
             withContext(Dispatchers.Main) {
-                webView.evaluateJavascript("window.scrollBy({top: 400, behavior: 'smooth'});") {}
+                webView.evaluateJavascript("window.scrollBy({top: 800, behavior: 'smooth'});") {}
             }
             delay(2000)
 
-            // Step 4: Analyze Search Results and Parse Metadata
-            log("Parsing video titles, view counts, and upload dates...")
+            // Step 3: Parse Results (Title, Channel, Views, Upload Date, Duration, URL)
+            log("Extracting video metadata (Title, Channel, Views, Date, Duration)...")
             val extractVideosScript = """
                 (function() {
                     var list = [];
-                    var items = document.querySelectorAll('ytm-video-with-context-renderer, ytm-compact-video-renderer, ytd-video-renderer, .media-item, a[href*="/watch"]');
+                    var items = document.querySelectorAll('ytm-video-with-context-renderer, ytm-compact-video-renderer, ytd-video-renderer, .media-item, a[href*="/watch"], article');
                     
                     items.forEach(function(item) {
                         var titleEl = item.querySelector('h3, .media-item-title, .compact-media-item-headline, #video-title');
                         var title = titleEl ? titleEl.innerText : '';
                         
                         var linkEl = item.querySelector('a[href*="/watch"]') || (item.tagName === 'A' && item.href.includes('/watch') ? item : null);
+                        if (!linkEl) linkEl = item.querySelector('a'); // fallback for generic sites
                         var url = linkEl ? linkEl.href : '';
                         
                         var metaText = '';
-                        var metaEls = item.querySelectorAll('.subhead, .metadata, #metadata-line span, .ytm-badge-and-byline-renderer');
-                        metaEls.forEach(function(el) {
-                            metaText += ' ' + el.innerText;
-                        });
-                        if (!metaText) {
-                            metaText = item.innerText;
-                        }
+                        var metaEls = item.querySelectorAll('.subhead, .metadata, #metadata-line span, .ytm-badge-and-byline-renderer, .channel-name');
+                        metaEls.forEach(function(el) { metaText += ' ' + el.innerText; });
+                        if (!metaText) metaText = item.innerText;
+                        
+                        var channelEl = item.querySelector('.ytm-badge-and-byline-item-byline, .channel-name, ytd-channel-name');
+                        var channel = channelEl ? channelEl.innerText : 'Unknown Channel';
                         
                         if (title && url) {
-                            // Parse View Counts
                             var views = 0;
                             var viewMatch = metaText.match(/([\d.,]+)\s*(K|M|B)?\s*views/i) || metaText.match(/([\d.,]+)\s*(thousand|million|billion)?\s*views/i);
                             if (viewMatch) {
@@ -570,7 +608,6 @@ class SiteCrawlerEngine {
                                 views = num;
                             }
                             
-                            // Parse freshness/age weight
                             var freshness = 0;
                             if (/second/i.test(metaText)) freshness = 10000;
                             else if (/minute/i.test(metaText)) freshness = 9000;
@@ -578,10 +615,14 @@ class SiteCrawlerEngine {
                             else if (/day/i.test(metaText)) freshness = 7000;
                             else if (/week/i.test(metaText)) freshness = 6000;
                             else if (/month/i.test(metaText)) freshness = 5000;
-                            else if (/year/i.test(metaText)) freshness = 1000;
+                            else if (/year/i.test(metaText)) {
+                                var yrMatch = metaText.match(/([\d]+)\s*year/i);
+                                freshness = yrMatch ? 1000 - parseInt(yrMatch[1]) : 1000;
+                            }
                             
                             list.push({
                                 title: title.trim(),
+                                channel: channel.trim(),
                                 url: url,
                                 viewsText: viewMatch ? viewMatch[0] : 'Unknown views',
                                 viewsCount: views,
@@ -613,6 +654,7 @@ class SiteCrawlerEngine {
                         val obj = arr.getJSONObject(i)
                         parsedVideos.add(ParsedVideoItem(
                             title = obj.getString("title"),
+                            channel = obj.optString("channel", "Unknown Channel"),
                             url = obj.getString("url"),
                             viewsText = obj.getString("viewsText"),
                             viewsCount = obj.getLong("viewsCount"),
@@ -626,246 +668,227 @@ class SiteCrawlerEngine {
             }
 
             if (parsedVideos.isEmpty()) {
-                log("Warning: No video metadata could be parsed. Attempting fallback navigation...")
-                // Fallback: try to navigate to first /watch href on page
-                val fallbackScript = """
-                    (function() {
-                        var watchLink = document.querySelector('a[href*="/watch"]');
-                        return watchLink ? watchLink.href : null;
-                    })();
-                """.trimIndent()
-                var fallbackUrl: String? = null
-                withContext(Dispatchers.Main) {
-                    webView.evaluateJavascript(fallbackScript) { res -> fallbackUrl = res }
-                }
-                delay(1500)
-
-                if (!fallbackUrl.isNullOrBlank() && fallbackUrl != "null") {
-                    val cleanUrl = fallbackUrl!!.replace("\"", "")
-                    log("Fallback navigation found: $cleanUrl")
-                    parsedVideos.add(ParsedVideoItem("Suggested Video", cleanUrl, "Unknown views", 0, 0, "Unknown Date"))
-                } else {
-                    log("Error: No YouTube videos found on page.")
-                    _botState.update { it.copy(status = CrawlBotStatus.ERROR, errorMessage = "No video watch link found.") }
-                    return
-                }
+                log("Error: No videos found. Aborting.")
+                showToast("No videos found to process.")
+                _botState.update { it.copy(status = CrawlBotStatus.ERROR, errorMessage = "No video results found.") }
+                return
             }
 
-            // Step 5: Evaluate & Select Target based on Criteria
-            log("Evaluating target based on selection criteria: ${criteria.uppercase()}...")
+            // Step 4: Compare & Select Video
+            log("Applying criteria: ${criteria.uppercase()}...")
+            val candidateList = parsedVideos
+            val targetVideos = when (criteria) {
+                "newest" -> candidateList.sortedWith(compareByDescending<ParsedVideoItem> { it.freshness }.thenByDescending { it.viewsCount })
+                "oldest" -> candidateList.sortedWith(compareBy<ParsedVideoItem> { it.freshness }.thenByDescending { it.viewsCount })
+                "highest_views" -> candidateList.sortedByDescending { it.viewsCount }
+                else -> candidateList // best_match
+            }.take(limit)
 
-            // Normalizing YouTube URLs before comparison to prevent query param bypasses (like &t=, &feature= etc.)
-            val normalizeYtUrl = { url: String ->
-                try {
-                    val uri = android.net.Uri.parse(url)
-                    val videoId = uri.getQueryParameter("v")
-                    if (videoId != null) {
-                        "https://www.youtube.com/watch?v=$videoId"
-                    } else {
-                        url.substringBefore("?").substringBefore("&")
+            log("Found ${targetVideos.size} videos matching criteria to process.")
+            showToast("Search complete. Found ${targetVideos.size} videos.")
+            
+            _botState.update { it.copy(videoTotalTarget = targetVideos.size) }
+
+            for ((index, targetVideo) in targetVideos.withIndex()) {
+                if (_botState.value.status != CrawlBotStatus.RUNNING && _botState.value.status != CrawlBotStatus.WAITING_CONFIRMATION) {
+                    log("Bot stopped or paused. Exiting video loop.")
+                    break
+                }
+                
+                log("--- Processing Video ${index + 1} of ${targetVideos.size} ---")
+                log("Selected: '${targetVideo.title}' by ${targetVideo.channel} (${targetVideo.viewsText})")
+                _botState.update {
+                    it.copy(
+                        videoActiveTitle = targetVideo.title,
+                        videoActiveChannel = targetVideo.channel,
+                        videoActiveUrl = targetVideo.url,
+                        videoActiveViews = targetVideo.viewsText,
+                        videoActiveDate = targetVideo.metaText,
+                        videoCurrentIndex = index + 1
+                    )
+                }
+
+                // Step 5: Navigate to Video
+                log("Navigating to selected video...")
+                withContext(Dispatchers.Main) {
+                    loadUrlAction(targetVideo.url)
+                }
+                delay(7000)
+
+                // Verify URL
+                val currentUrlRes = withContext(Dispatchers.Main) { webView.url ?: targetVideo.url }
+                log("Verified target URL: $currentUrlRes")
+                showToast("Opened video: ${targetVideo.title}")
+
+                // Step 6: Action - Copy Link
+                var copiedResult = false
+                if (_botState.value.videoPerformCopyLink) {
+                    log("Copying verified link to clipboard...")
+                    withContext(Dispatchers.Main) {
+                        val clipboard = webView.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = ClipData.newPlainText("Video Link", currentUrlRes)
+                        clipboard.setPrimaryClip(clip)
                     }
-                } catch (e: Exception) {
-                    url
+                    copiedResult = true
+                    log("Copied link successfully.")
+                    showToast("Copied link to clipboard")
                 }
-            }
 
-            // Retrieve visited history URLs to avoid duplication with robust normalized matches
-            val visitedUrlsSet = _botState.value.ytHistory.map { normalizeYtUrl(it.videoUrl) }.toSet()
-            val unvisitedVideos = parsedVideos.filter { normalizeYtUrl(it.url) !in visitedUrlsSet }
-
-            // Choose list to sort (prefer unvisited to avoid duplicates as requested, fallback to all)
-            val candidateList = if (unvisitedVideos.isNotEmpty()) {
-                log("Filtering out ${parsedVideos.size - unvisitedVideos.size} previously visited videos to prevent duplicates.")
-                unvisitedVideos
-            } else {
-                log("All found videos have been visited before. Re-evaluating complete results.")
-                parsedVideos
-            }
-
-            val targetVideo = when (criteria) {
-                "newest" -> {
-                    candidateList.sortedWith(compareByDescending<ParsedVideoItem> { it.freshness }.thenByDescending { it.viewsCount }).first()
-                }
-                else -> { // highest_views
-                    candidateList.sortedByDescending { it.viewsCount }.first()
-                }
-            }
-
-            log("Selected target: '${targetVideo.title}' (${targetVideo.viewsText}) [Freshness Rank: ${targetVideo.freshness}]")
-
-            // Step 6: Navigation to Watch page
-            log("Initiating playback navigation...")
-            withContext(Dispatchers.Main) {
-                loadUrlAction(targetVideo.url)
-            }
-            _botState.update {
-                it.copy(
-                    ytActiveVideoTitle = targetVideo.title,
-                    ytActiveVideoUrl = targetVideo.url,
-                    ytActiveVideoViews = targetVideo.viewsText,
-                    ytActiveVideoDate = targetVideo.metaText
-                )
-            }
-            delay(6000) // Allow video page to buffer and start
-
-            // Step 7: Engagement - Link Extraction & Copy
-            log("Extracting and copying video URL to the system clipboard...")
-            val finalUrl = targetVideo.url
-            withContext(Dispatchers.Main) {
-                val clipboard = webView.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("YouTube Video Link", finalUrl)
-                clipboard.setPrimaryClip(clip)
-            }
-            log("Successfully copied link: $finalUrl")
-
-            // Step 8: Engagement - Like
-            var likedResult = false
-            if (like) {
-                log("Sending automatic 'Like' signal to YouTube page element...")
-                val likeScript = """
-                    (function() {
-                        function highlightElement(el) {
-                            if (!el) return;
-                            el.style.outline = '4px solid #FF1744';
-                            el.style.outlineOffset = '2px';
-                            el.style.transition = 'outline 0.3s ease-in-out';
-                            el.scrollIntoView({behavior: 'smooth', block: 'center'});
-                            setTimeout(function() { el.style.outline = ''; }, 2500);
-                        }
-
-                        var likeBtn = document.querySelector('button[aria-label*="like this video"], button[aria-label*="Like"], button.like-button-renderer, ytd-toggle-button-renderer button, [role="button"][aria-label*="Like"], .yt-spec-button-shape-next[aria-label*="Like"]');
-                        if (likeBtn) {
-                            highlightElement(likeBtn);
-                            likeBtn.click();
-                            return "clicked";
-                        }
-                        return "not_found";
-                    })();
-                """.trimIndent()
-                var likeRes: String? = null
-                withContext(Dispatchers.Main) {
-                    webView.evaluateJavascript(likeScript) { res -> likeRes = res }
-                }
-                delay(1500)
-                likedResult = likeRes?.contains("clicked") == true
-                log("Like action trigger: $likeRes")
-            }
-
-            // Step 9: Engagement - Comment
-            var commentedResult = false
-            if (comment && commentText.isNotBlank()) {
-                log("Attempting to scroll and publish comment: '$commentText'...")
-                val escapedComment = JSONObject.quote(commentText)
-                val commentScript = """
-                    (function() {
-                        function highlightElement(el) {
-                            if (!el) return;
-                            el.style.outline = '4px solid #FF1744';
-                            el.style.outlineOffset = '2px';
-                            el.style.transition = 'outline 0.3s ease-in-out';
-                            el.scrollIntoView({behavior: 'smooth', block: 'center'});
-                            setTimeout(function() { el.style.outline = ''; }, 2500);
-                        }
-
-                        window.scrollTo(0, 450);
-                        var box = document.querySelector('ytm-comment-simplebox-renderer, textarea, .comment-simplebox-text, [placeholder*="Add a comment"], .ytm-comment-simplebox-reply-device, .ytm-comments-header-renderer');
-                        if (box) {
-                            highlightElement(box);
-                            box.click();
-                            var input = document.querySelector('textarea, input.comment-simplebox-text, .comment-simplebox-text, [placeholder*="Add a comment"], .yt-spec-button-shape-next[aria-label*="Comment"] input');
-                            if (input) {
-                                highlightElement(input);
-                                input.value = $escapedComment;
-                                input.dispatchEvent(new Event('input', { bubbles: true }));
-                                input.dispatchEvent(new Event('change', { bubbles: true }));
-                                
-                                var submit = document.querySelector('button.comment-simplebox-submit, button[aria-label="Comment"], #submit-button, .ytm-comment-simplebox-submit-button, .yt-spec-button-shape-next--filled[aria-label="Comment"]');
-                                if (submit) {
-                                    highlightElement(submit);
-                                    submit.click();
-                                    return "submitted";
-                                }
+                // Step 7: Action - Like
+                var likedResult = false
+                if (_botState.value.videoPerformLike) {
+                    log("Executing Like action...")
+                    val likeScript = """
+                        (function() {
+                            var likeBtn = document.querySelector('button[aria-label*="like this video"], button[aria-label*="Like"], button.like-button-renderer, [role="button"][aria-label*="Like"], .yt-spec-button-shape-next[aria-label*="Like"]');
+                            if (likeBtn) {
+                                likeBtn.click();
+                                return "clicked";
                             }
-                        }
-                        return "box_clicked_but_unfilled";
-                    })();
-                """.trimIndent()
-                var commentRes: String? = null
-                withContext(Dispatchers.Main) {
-                    webView.evaluateJavascript(commentScript) { res -> commentRes = res }
+                            return "not_found";
+                        })();
+                    """.trimIndent()
+                    var likeRes: String? = null
+                    withContext(Dispatchers.Main) {
+                        webView.evaluateJavascript(likeScript) { res -> likeRes = res }
+                    }
+                    delay(1500)
+                    likedResult = likeRes?.contains("clicked") == true
+                    log("Like Result: $likeRes")
+                    if (likedResult) {
+                        showToast("Liked video: ${targetVideo.title}")
+                    }
                 }
-                delay(2500)
-                commentedResult = commentRes?.contains("submitted") == true
-                log("Comment action trigger: $commentRes")
+
+                // Step 8: Action - Comment with User Confirmation
+                var commentedResult = false
+                if (_botState.value.videoPerformComment && commentText.isNotBlank()) {
+                    log("Preparing to comment. Requesting User Confirmation...")
+                    _botState.update { it.copy(status = CrawlBotStatus.WAITING_CONFIRMATION, currentAction = "Waiting for User Confirmation to post comment...") }
+                    
+                    // Wait until status changes from WAITING_CONFIRMATION
+                    while (_botState.value.status == CrawlBotStatus.WAITING_CONFIRMATION) {
+                        delay(500)
+                    }
+
+                    // If user didn't stop and didn't deny (videoPerformComment is still true)
+                    if (_botState.value.status == CrawlBotStatus.RUNNING && _botState.value.videoPerformComment) {
+                        log("User Confirmed. Posting comment...")
+                        val escapedComment = org.json.JSONObject.quote(commentText)
+                        val commentScript = """
+                            (function() {
+                                window.scrollTo(0, 500);
+                                var box = document.querySelector('ytm-comment-simplebox-renderer, textarea, .comment-simplebox-text, [placeholder*="Add a comment"], .ytm-comments-header-renderer');
+                                if (box) {
+                                    box.click();
+                                    var input = document.querySelector('textarea, input.comment-simplebox-text, [placeholder*="Add a comment"], .yt-spec-button-shape-next[aria-label*="Comment"] input');
+                                    if (input) {
+                                        input.value = ${escapedComment};
+                                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                                        
+                                        var submit = document.querySelector('button.comment-simplebox-submit, button[aria-label="Comment"], #submit-button, .yt-spec-button-shape-next--filled[aria-label="Comment"]');
+                                        if (submit) {
+                                            submit.click();
+                                            return "submitted";
+                                        }
+                                    }
+                                }
+                                return "box_clicked_but_unfilled";
+                            })();
+                        """.trimIndent()
+                        var commentRes: String? = null
+                        withContext(Dispatchers.Main) {
+                            webView.evaluateJavascript(commentScript) { res -> commentRes = res }
+                        }
+                        delay(2500)
+                        commentedResult = commentRes?.contains("submitted") == true
+                        log("Comment Action Result: $commentRes")
+                        if (commentedResult) {
+                            showToast("Commented on video: ${targetVideo.title}")
+                        }
+                    } else {
+                        log("Comment Action Denied/Skipped by user.")
+                    }
+                }
+
+                // Step 9: Report & Memory
+                log("Saving interaction to local history...")
+                val newInteraction = VideoInteractionItem(
+                    query = query,
+                    selectedVideoTitle = targetVideo.title,
+                    channel = targetVideo.channel,
+                    viewsText = targetVideo.viewsText,
+                    uploadDateText = targetVideo.metaText,
+                    videoUrl = targetVideo.url,
+                    timestamp = System.currentTimeMillis(),
+                    actionSearched = true,
+                    actionOpened = true,
+                    actionLiked = likedResult,
+                    actionCopied = copiedResult,
+                    actionCommented = commentedResult,
+                    actionResult = "Success"
+                )
+
+                val updatedHistory = _botState.value.videoHistory + newInteraction
+                _botState.update {
+                    it.copy(videoHistory = updatedHistory)
+                }
+
+                withContext(Dispatchers.IO) {
+                    saveVideoHistory(webView.context, updatedHistory)
+                }
+                
+                log("Finished Video ${index + 1}.")
+                delay(3000)
             }
 
-            // Step 10: Session Logging & Memory Persistence
-            log("Saving interaction metadata to Local History State...")
-            val newInteraction = YoutubeInteractionItem(
-                query = query,
-                videoTitle = targetVideo.title,
-                videoUrl = targetVideo.url,
-                viewCountText = targetVideo.viewsText,
-                timestamp = System.currentTimeMillis(),
-                isLiked = likedResult || like, // count true if triggered
-                isCommented = commentedResult || comment,
-                commentText = if (comment) commentText else ""
-            )
-
-            val updatedHistory = _botState.value.ytHistory + newInteraction
             _botState.update {
                 it.copy(
                     status = CrawlBotStatus.COMPLETED,
-                    ytHistory = updatedHistory,
-                    currentAction = "YouTube Automation completed successfully!"
+                    currentAction = "Video Automation completed! Processed ${targetVideos.size} videos."
                 )
             }
-
-            // Persist history to SharedPreferences
-            withContext(Dispatchers.IO) {
-                saveYtHistory(webView.context, updatedHistory)
-            }
-
-            log("YouTube Automation finished! Task completed successfully.")
+            log("Bot finished successfully.")
+            showToast("Video automation complete!")
 
         } catch (e: Exception) {
-            log("Automation Error: ${e.localizedMessage ?: "Unknown Exception"}")
-            _botState.update {
-                it.copy(
-                    status = CrawlBotStatus.ERROR,
-                    errorMessage = e.localizedMessage,
-                    currentAction = "Automation failed: ${e.localizedMessage}"
-                )
-            }
+            log("Automation Error: ${e.localizedMessage}")
+            _botState.update { it.copy(status = CrawlBotStatus.ERROR, errorMessage = e.localizedMessage) }
         }
     }
 
     private data class ParsedVideoItem(
         val title: String,
+        val channel: String,
         val url: String,
         val viewsText: String,
         val viewsCount: Long,
         val freshness: Int,
         val metaText: String
     )
-
-    private fun loadYtHistory(context: Context): List<YoutubeInteractionItem> {
-        val prefs = context.getSharedPreferences("youtube_bot_prefs", Context.MODE_PRIVATE)
+    private fun loadVideoHistory(context: Context): List<VideoInteractionItem> {
+        val prefs = context.getSharedPreferences("video_bot_prefs", Context.MODE_PRIVATE)
         val rawJson = prefs.getString("history", "[]") ?: "[]"
-        val list = mutableListOf<YoutubeInteractionItem>()
+        val list = mutableListOf<VideoInteractionItem>()
         try {
             val arr = org.json.JSONArray(rawJson)
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                list.add(YoutubeInteractionItem(
+                list.add(VideoInteractionItem(
                     query = obj.optString("query"),
-                    videoTitle = obj.optString("videoTitle"),
+                    selectedVideoTitle = obj.optString("selectedVideoTitle"),
+                    channel = obj.optString("channel"),
+                    viewsText = obj.optString("viewsText"),
+                    uploadDateText = obj.optString("uploadDateText"),
                     videoUrl = obj.optString("videoUrl"),
-                    viewCountText = obj.optString("viewCountText"),
                     timestamp = obj.optLong("timestamp"),
-                    isLiked = obj.optBoolean("isLiked"),
-                    isCommented = obj.optBoolean("isCommented"),
-                    commentText = obj.optString("commentText")
+                    actionSearched = obj.optBoolean("actionSearched"),
+                    actionOpened = obj.optBoolean("actionOpened"),
+                    actionLiked = obj.optBoolean("actionLiked"),
+                    actionCopied = obj.optBoolean("actionCopied"),
+                    actionCommented = obj.optBoolean("actionCommented"),
+                    actionResult = obj.optString("actionResult")
                 ))
             }
         } catch (e: Exception) {
@@ -874,27 +897,92 @@ class SiteCrawlerEngine {
         return list
     }
 
-    private fun saveYtHistory(context: Context, history: List<YoutubeInteractionItem>) {
-        val prefs = context.getSharedPreferences("youtube_bot_prefs", Context.MODE_PRIVATE)
+    private fun saveVideoHistory(context: Context, history: List<VideoInteractionItem>) {
+        val prefs = context.getSharedPreferences("video_bot_prefs", Context.MODE_PRIVATE)
         val arr = org.json.JSONArray()
         history.forEach { item ->
             val obj = org.json.JSONObject()
             obj.put("query", item.query)
-            obj.put("videoTitle", item.videoTitle)
+            obj.put("selectedVideoTitle", item.selectedVideoTitle)
+            obj.put("channel", item.channel)
+            obj.put("viewsText", item.viewsText)
+            obj.put("uploadDateText", item.uploadDateText)
             obj.put("videoUrl", item.videoUrl)
-            obj.put("viewCountText", item.viewCountText)
             obj.put("timestamp", item.timestamp)
-            obj.put("isLiked", item.isLiked)
-            obj.put("isCommented", item.isCommented)
-            obj.put("commentText", item.commentText)
+            obj.put("actionSearched", item.actionSearched)
+            obj.put("actionOpened", item.actionOpened)
+            obj.put("actionLiked", item.actionLiked)
+            obj.put("actionCopied", item.actionCopied)
+            obj.put("actionCommented", item.actionCommented)
+            obj.put("actionResult", item.actionResult)
             arr.put(obj)
         }
         prefs.edit().putString("history", arr.toString()).apply()
     }
 
-    fun clearYtHistory(context: Context) {
-        val prefs = context.getSharedPreferences("youtube_bot_prefs", Context.MODE_PRIVATE)
+    fun clearVideoHistory(context: Context) {
+        val prefs = context.getSharedPreferences("video_bot_prefs", Context.MODE_PRIVATE)
         prefs.edit().remove("history").apply()
-        _botState.update { it.copy(ytHistory = emptyList()) }
+        _botState.update { it.copy(videoHistory = emptyList()) }
+    }
+
+    // --- TikTok Viral Repurposing Bot Methods ---
+
+    fun startTikTokBot(
+        query: String,
+        limit: Int,
+        minViews: Long,
+        criteria: String,
+        customHashtags: String,
+        scope: CoroutineScope,
+        loadUrlAction: (String) -> Unit,
+        getWebViewProvider: () -> WebView?
+    ) {
+        val trimmedQuery = query.trim()
+        if (trimmedQuery.isEmpty()) return
+
+        stopCrawl()
+
+        val webView = getWebViewProvider()
+        val context = webView?.context
+        val loadedReels = if (context != null) TikTokViralEngine.loadTikTokHistory(context) else emptyList()
+
+        _botState.value = CrawlBotState(
+            status = CrawlBotStatus.RUNNING,
+            botMode = "tiktok",
+            tiktokQuery = trimmedQuery,
+            tiktokLimit = limit,
+            tiktokMinViews = minViews,
+            tiktokSortCriteria = criteria,
+            tiktokCustomHashtags = customHashtags,
+            tiktokDownloadedReels = loadedReels,
+            tiktokCurrentIndex = 0,
+            tiktokTotalTarget = limit,
+            tiktokLogs = listOf("TikTok Viral Hunter Bot initialized. Target: $limit reels for '$trimmedQuery'."),
+            tiktokActiveStatusStep = "Initializing TikTok Viral Engine..."
+        )
+
+        crawlJob = scope.launch(Dispatchers.Main) {
+            TikTokViralEngine.runTikTokAutomationFlow(
+                query = trimmedQuery,
+                limit = limit,
+                minViews = minViews,
+                criteria = criteria,
+                customHashtags = customHashtags,
+                loadUrlAction = loadUrlAction,
+                getWebViewProvider = getWebViewProvider,
+                botState = _botState
+            )
+        }
+    }
+
+    fun clearTikTokHistory(context: Context) {
+        TikTokViralEngine.clearTikTokHistory(context)
+        _botState.update { it.copy(tiktokDownloadedReels = emptyList()) }
+    }
+
+    fun deleteTikTokReel(context: Context, id: String) {
+        val updated = TikTokViralEngine.deleteTikTokReel(context, id)
+        _botState.update { it.copy(tiktokDownloadedReels = updated) }
     }
 }

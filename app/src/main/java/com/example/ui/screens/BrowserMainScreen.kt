@@ -547,10 +547,17 @@ fun BrowserMainScreen(
             onResetBot = { viewModel.resetCrawlBot() },
             onOpenUrl = { url -> viewModel.loadUrl(url) },
             onDismiss = { viewModel.showCrawlBotSheet(false) },
-            onStartYtBot = { query, criteria, like, comment, commentText ->
-                viewModel.startYoutubeBot(query, criteria, like, comment, commentText)
+            onStartVideoBot = { query, limit, criteria, like, comment, copyLink, text ->
+                viewModel.startVideoBot(query, limit, criteria, like, comment, copyLink, text)
             },
-            onClearYtHistory = { viewModel.clearYoutubeHistory(context) }
+            onConfirmComment = { viewModel.confirmVideoComment() },
+            onDenyComment = { viewModel.denyVideoComment() },
+            onClearVideoHistory = { viewModel.clearVideoHistory() },
+            onStartTikTokBot = { query, limit, minViews, criteria, customHashtags ->
+                viewModel.startTikTokBot(query, limit, minViews, criteria, customHashtags)
+            },
+            onClearTikTokHistory = { viewModel.clearTikTokHistory() },
+            onDeleteTikTokReel = { id -> viewModel.deleteTikTokReel(id) }
         )
     }
 
